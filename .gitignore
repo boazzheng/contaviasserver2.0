@@ -1,0 +1,35 @@
+# Ambientes Virtuais
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+.venv/
+venv/
+env/
+
+# Dados, Pesos e Modelos IA
+weights/
+*.pt
+*.pth
+data/
+dataset/
+dataset_completo/
+Lixeira/
+*.mp4
+*.avi
+*.jpg
+*.png
+
+# Segurança e Credenciais
+keys/
+secrets/
+*.txt
+!requirements.txt
+server_remote_access*
+*.env
+
+# Caches do Python e SO
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

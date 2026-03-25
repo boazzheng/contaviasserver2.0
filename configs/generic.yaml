@@ -1,0 +1,12 @@
+path: /home/dyd/Vehicle-Identification-and-Detection-Algorithm/model-training/data/
+train: 
+  - highway/images/train
+  - nonhighway/images/train
+  - generic/images/train
+val:
+  - highway/images/val
+  - nonhighway/images/val
+  - generic/images/val
+
+nc: 7
+names: ["car", "truck", "bus", "motorcycle", "reboque", "_", "pedestre"]
