@@ -12,6 +12,7 @@ weights/
 *.pt
 *.pth
 data/
+db
 dataset/
 dataset_completo/
 Lixeira/

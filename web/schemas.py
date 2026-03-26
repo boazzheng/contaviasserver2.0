@@ -1,37 +1,93 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional, List, Union
 
 # ==========================================
-# SCHEMAS DE RELACIONAMENTO (Novos)
+# SCHEMAS BASE (ÉPICO 1)
 # ==========================================
-class ClientResponse(BaseModel):
+
+class ClientBase(BaseModel):
     name: str
-    model_config = ConfigDict(from_attributes=True)
 
-class ProjectResponse(BaseModel):
+class ClientResponse(ClientBase):
+    id: int
+    class Config:
+        from_attributes = True
+
+class ProjectBase(BaseModel):
     name: str
-    client: ClientResponse  # O Projeto carrega o Cliente com ele
-    model_config = ConfigDict(from_attributes=True)
+    client_id: int
+
+class ProjectResponse(ProjectBase):
+    id: int
+    client: Optional[ClientResponse] = None
+    class Config:
+        from_attributes = True
 
 # ==========================================
-# SCHEMAS PARA VÍDEOS (Atualizado)
+# NOVOS SCHEMAS DO ÉPICO 2 (Fatias e Zonas)
 # ==========================================
+
+class VideoSliceBase(BaseModel):
+    start_time: str
+    end_time: str
+    status: Optional[str] = "pending"
+    assigned_to: Optional[str] = None
+
+class VideoSliceCreate(VideoSliceBase):
+    pass
+
+class VideoSliceResponse(VideoSliceBase):
+    id: int
+    video_id: int
+    class Config:
+        from_attributes = True
+
+class ZoneBase(BaseModel):
+    name: str
+    # O formato que esperamos: [[x,y], [x,y], [x,y], ...]
+    geometry: List[List[float]] 
+
+class ZoneCreate(ZoneBase):
+    pass
+
+class ZoneResponse(ZoneBase):
+    id: int
+    video_id: int
+    class Config:
+        from_attributes = True
+
+# ==========================================
+# SCHEMA DO VÍDEO ATUALIZADO
+# ==========================================
+
+class VideoBase(BaseModel):
+    project_id: Optional[int] = None
+    original_filename: str
+    location_name: str
+    file_path: str
+    status: Optional[str] = "staged"
+
 class VideoCreate(BaseModel):
-    client_name: str     # <-- Adicionado
-    project_name: str    # <-- Adicionado
+    client_name: str
+    project_name: str
     original_filename: str
     location_name: str
     file_path: str
 
-class VideoResponse(BaseModel):
+class VideoResponse(VideoBase):
     id: int
-    project_id: int
-    original_filename: str
-    location_name: str
-    status: str
     upload_date: datetime
+    frame_urls: List[str] = []
+    project: Optional[ProjectResponse] = None
+    slices: List[VideoSliceResponse] = []
     
-    # NOVA LINHA: O SQLAlchemy vai preencher isso automaticamente!
-    project: ProjectResponse 
+    # Atualizado aqui: Devolvemos zonas!
+    zones: List[ZoneResponse] = [] 
     
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
+
+class AutoSliceCreate(BaseModel):
+    start_time: str
+    end_time: str
