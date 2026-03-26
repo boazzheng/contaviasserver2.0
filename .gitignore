@@ -19,6 +19,7 @@ Lixeira/
 *.avi
 *.jpg
 *.png
+estrutura-monorepo.txt
 
 # Segurança e Credenciais
 keys/
