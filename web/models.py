@@ -152,21 +152,21 @@ class TaskAllocation(Base):
 # ==========================================
 # 5. FUNÇÃO DE INICIALIZAÇÃO
 # ==========================================
-def init_db(db_path="sqlite:///db/contavias.sqlite3"):
+def init_db(db_path=None):
+    if db_path is None:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_file_path = os.path.join(base_dir, "db", "contavias.sqlite3")
+        db_path = f"sqlite:///{db_file_path}"
+    
     db_file = db_path.replace("sqlite:///", "")
     os.makedirs(os.path.dirname(db_file), exist_ok=True)
     
     engine = create_engine(db_path, connect_args={"check_same_thread": False})
     
-    # A forma correta e segura: o SQLAlchemy apaga as tabelas e recria, 
-    # sem tentar deletar o arquivo físico bloqueado pelo Windows.
-    print("Limpando tabelas antigas (se existirem)...")
-    Base.metadata.drop_all(bind=engine)
-    
-    print("Criando novo schema do banco de dados...")
+    # REMOVIDO O DROP_ALL. Agora ele apenas garante que a estrutura existe.
     Base.metadata.create_all(bind=engine)
     
-    print(f"Banco de dados (V3) inicializado com sucesso em: {db_path}")
+    print(f"Banco de dados conectado com sucesso em: {db_file}")
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 if __name__ == "__main__":

@@ -28,6 +28,8 @@ secrets/
 !requirements.txt
 server_remote_access*
 *.env
+token.json
+credentials.json
 
 # Caches do Python e SO
 __pycache__/
