@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ContaVias - Alocação de Trabalho</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans leading-normal tracking-normal">
+
+    <nav class="bg-indigo-800 p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="text-white font-bold text-xl">🚦 ContaVias Admin 2.0</div>
+            <div class="flex space-x-4">
+                <a href="/admin/staging" class="text-indigo-200 hover:text-white transition">Fila de Staging</a>
+                <a href="/admin/allocation" class="text-white font-bold border-b-2 border-white pb-1">Alocação (Freelas)</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto mt-8 p-4 flex flex-col md:flex-row gap-6">
+        
+        <div class="w-full md:w-1/3 flex flex-col gap-6">
+            <div class="bg-white shadow-md rounded-lg p-5 border-t-4 border-indigo-500">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">👥 Adicionar Freelancer</h2>
+                <div class="space-y-3">
+                    <input type="text" id="freelaName" placeholder="Nome Completo" class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <input type="email" id="freelaEmail" placeholder="E-mail" class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <button onclick="cadastrarFreela()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">
+                        + Cadastrar
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white shadow-md rounded-lg p-5">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">📋 Equipe Disponível</h2>
+                <ul id="listaFreelas" class="text-sm text-gray-600 space-y-2">
+                    <li class="italic text-gray-400">Carregando equipe...</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="w-full md:w-2/3">
+            <div class="bg-white shadow-md rounded-lg p-5">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">🎯 Atribuir Fatias de Vídeo</h2>
+                    <span class="text-xs bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded border border-yellow-200">Agrupado por Projeto</span>
+                </div>
+                
+                <div id="containerVideos" class="space-y-4">
+                    <p class="text-center py-10 text-gray-500">Carregando matriz de alocação...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let freelancersGlobais = [];
+        const projetosColapsados = new Set(); 
+        const projetosJaVistos = new Set();   
+
+        // ==========================================
+        // MEMÓRIA BLINDADA (UI STATE)
+        // ==========================================
+        const tarefasSelecionadas = new Set(); 
+        const freelasSelecionados = {};        
+        const togglesSelecionados = new Set(); // NOVO: Memória para o botão "Selecionar Linha"
+
+        function formatarTempo(segundos) {
+            if (segundos === 0) return "Completo";
+            const h = Math.floor(segundos / 3600).toString().padStart(2, '0');
+            const m = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0');
+            return `${h}:${m}`;
+        }
+
+        function toggleProjeto(safeName) {
+            const div = document.getElementById(`content_${safeName}`);
+            const icon = document.getElementById(`icon_${safeName}`);
+            if (projetosColapsados.has(safeName)) {
+                projetosColapsados.delete(safeName);
+                div.classList.remove('hidden');
+                icon.innerText = '▼';
+            } else {
+                projetosColapsados.add(safeName);
+                div.classList.add('hidden');
+                icon.innerText = '▶';
+            }
+        }
+
+        async function carregarDados() {
+            try {
+                const response = await fetch('/allocation/data');
+                const data = await response.json();
+                freelancersGlobais = data.freelancers;
+                renderizarEquipe(data.freelancers);
+                renderizarMatriz(data.videos);
+            } catch (error) { console.error("Erro:", error); }
+        }
+
+        function renderizarEquipe(freelas) {
+            const ul = document.getElementById('listaFreelas');
+            if (freelas.length === 0) { ul.innerHTML = '<li class="italic text-gray-400">Nenhum freelancer.</li>'; return; }
+            ul.innerHTML = freelas.map(f => `<li class="flex items-center text-gray-700 border-b pb-1"><span class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center mr-3">${f.name.charAt(0).toUpperCase()}</span>${f.name}</li>`).join('');
+        }
+
+        function atualizarStateCheckbox(taskId, isChecked) {
+            if (isChecked) tarefasSelecionadas.add(taskId);
+            else tarefasSelecionadas.delete(taskId);
+        }
+
+        // NOVO: Guarda o estado do Toggle da Linha
+        function atualizarStateToggle(toggleId, isChecked) {
+            if (isChecked) togglesSelecionados.add(toggleId);
+            else togglesSelecionados.delete(toggleId);
+        }
+
+        function renderizarMatriz(videos) {
+            const container = document.getElementById('containerVideos');
+            if (videos.length === 0) {
+                container.innerHTML = '<div class="text-center py-10 text-gray-500 bg-gray-50 rounded border border-dashed">Nenhum vídeo aprovado no momento.</div>';
+                return;
+            }
+
+            const projetos = {};
+            videos.forEach(video => {
+                const pName = video.project_name;
+                if(!projetos[pName]) projetos[pName] = [];
+                video.slices.forEach(slice => {
+                    projetos[pName].push({ ...slice, filename: video.filename, videoId: video.id });
+                });
+            });
+
+            let html = '';
+            for (const [pName, fatias] of Object.entries(projetos)) {
+                fatias.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+                const safeId = pName.replace(/[^a-zA-Z0-9]/g, '_');
+                
+                if (!projetosJaVistos.has(safeId)) { projetosColapsados.add(safeId); projetosJaVistos.add(safeId); }
+                const isColapsado = projetosColapsados.has(safeId);
+                const displayClass = isColapsado ? 'hidden' : '';
+                const icone = isColapsado ? '▶' : '▼';
+
+                let slicesHtml = '<div class="divide-y divide-gray-200">';
+                
+                fatias.forEach(slice => {
+                    const tasksPorOrigem = {};
+                    slice.tasks.forEach(t => {
+                        const origem = t.movement_name.split(' ➔ ')[0];
+                        if (!tasksPorOrigem[origem]) tasksPorOrigem[origem] = [];
+                        tasksPorOrigem[origem].push(t);
+                    });
+
+                    let tasksHtml = '<div class="flex flex-col gap-1.5 mt-2 w-full">';
+                    
+                    for (const [origem, originTasks] of Object.entries(tasksPorOrigem)) {
+                        tasksHtml += `<div class="flex flex-row items-stretch justify-between w-full border border-gray-200 rounded bg-gray-50 overflow-hidden shadow-sm">`;
+                        
+                        tasksHtml += `<div class="flex flex-wrap p-1 gap-1.5 flex-grow">`;
+                        
+                        originTasks.forEach(t => {
+                            const isAtribuido = t.status !== 'pending';
+                            const corFundo = isAtribuido ? 'bg-indigo-100 border-indigo-300 text-indigo-900' : 'bg-white border-gray-300 text-gray-600 hover:bg-indigo-50 hover:border-indigo-300';
+                            
+                            // LÓGICA DO NOME: Primeiro Nome + Inicial do Último (ex: João S.)
+                            let freelaDisplay = "-";
+                            if (t.freelancer_name) {
+                                const parts = t.freelancer_name.trim().split(' ');
+                                if (parts.length > 1) {
+                                    freelaDisplay = `👤 ${parts[0]} ${parts[parts.length - 1].charAt(0)}.`;
+                                } else {
+                                    freelaDisplay = `👤 ${parts[0]}`;
+                                }
+                            }
+
+                            const iconeAtribuido = isAtribuido 
+                                ? `<span class="text-[9px] font-normal truncate w-full text-center mt-0.5 opacity-80" title="${t.freelancer_name}">${freelaDisplay}</span>` 
+                                : `<span class="text-[9px] font-normal w-full text-center mt-0.5 text-transparent select-none block h-3">-</span>`;
+                            
+                            const checkedAttr = tarefasSelecionadas.has(t.id) ? 'checked' : '';
+
+                            // REDUZIDO: w-[72px] (mais estreito), p-0.5 (menos margem interna)
+                            tasksHtml += `
+                                <label class="cursor-pointer border rounded p-0.5 text-[10px] font-bold transition flex flex-col items-center justify-center w-[72px] shrink-0 shadow-sm ${corFundo}">
+                                    <div class="flex items-center justify-center w-full">
+                                        <input type="checkbox" data-origin="${origem}" class="task-checkbox-${slice.id} h-3 w-3 text-indigo-600 rounded cursor-pointer mr-1" value="${t.id}" ${checkedAttr} onchange="atualizarStateCheckbox(${t.id}, this.checked)">
+                                        <span class="truncate text-center" title="${t.movement_name}">${t.movement_name}</span>
+                                    </div>
+                                    ${iconeAtribuido}
+                                </label>
+                            `;
+                        });
+                        tasksHtml += `</div>`; 
+
+                        const safeOrigem = origem.replace(/'/g, "\\'"); 
+                        const toggleId = `toggle_${slice.id}_${safeOrigem}`;
+                        const toggleChecked = togglesSelecionados.has(toggleId) ? 'checked' : '';
+
+                        tasksHtml += `
+                            <div class="flex items-center justify-center bg-gray-200 border-l border-gray-300 px-3 min-w-[70px] transition">
+                                <label class="cursor-pointer flex items-center justify-center w-full h-full text-xs font-bold text-gray-700 hover:text-indigo-800">
+                                    <input type="checkbox" id="${toggleId}" ${toggleChecked} onchange="toggleOrigemLinha(${slice.id}, '${safeOrigem}', this.checked); atualizarStateToggle(this.id, this.checked)" class="h-4 w-4 text-indigo-600 rounded cursor-pointer mr-1">
+                                    ${origem} ➔
+                                </label>
+                            </div>
+                        `;
+                        tasksHtml += `</div>`; 
+                    }
+                    tasksHtml += '</div>';
+
+                    // LÓGICA INFALÍVEL DA HORA
+                    const tempoCorte = `${formatarTempo(slice.start_time)} a ${formatarTempo(slice.end_time)}`;
+                    let textoAmarelo = slice.name;
+                    // Se o banco de dados não enviou a hora real, ou se o texto for genérico, usamos a hora do corte:
+                    if (!textoAmarelo || textoAmarelo === "Vídeo Completo" || textoAmarelo.trim() === "") {
+                        textoAmarelo = tempoCorte;
+                    }
+
+                    const fSelected = freelasSelecionados[slice.id] || "";
+                    const fOptions = freelancersGlobais.map(f => `<option value="${f.id}" ${f.id == fSelected ? 'selected' : ''}>${f.name}</option>`).join('');
+
+                    slicesHtml += `
+                        <div class="p-3 hover:bg-white transition flex flex-col gap-2">
+                            <div class="flex flex-col lg:flex-row lg:items-center justify-between border-b border-gray-100 pb-2">
+                                <div class="flex items-center gap-2 mb-1 lg:mb-0 flex-wrap min-w-0">
+                                    <span class="text-sm font-bold text-gray-800 bg-yellow-100 px-2 py-0.5 rounded border border-yellow-300 shrink-0 shadow-sm" title="Hora Nominal">
+                                        🕒 ${textoAmarelo}
+                                    </span>
+                                    <span class="text-[10px] text-gray-600 font-mono bg-white px-1.5 py-0.5 rounded border shrink-0 shadow-sm" title="Tempo de corte no arquivo">
+                                        ✂️ ${tempoCorte}
+                                    </span>
+                                    <span class="text-xs text-gray-400 font-mono truncate max-w-[200px] lg:max-w-[400px]" title="Arquivo Original">
+                                        📁 ${slice.filename}
+                                    </span>
+                                </div>
+                                
+                                <div class="flex items-center gap-1 shrink-0 bg-gray-50 p-1 rounded border shadow-sm self-start lg:self-auto">
+                                    <select id="select_freela_${slice.id}" onchange="freelasSelecionados[${slice.id}] = this.value" class="border-none bg-transparent text-xs p-1 outline-none w-32 cursor-pointer font-semibold text-gray-700 focus:ring-0">
+                                        <option value="">👤 Selecionar Freela...</option>
+                                        ${fOptions}
+                                    </select>
+                                    <button onclick="atribuirLote(${slice.id})" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-xs font-bold transition shadow-sm">
+                                        Atribuir Selecionados
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            ${tasksHtml}
+                        </div>
+                    `;
+                });
+
+                slicesHtml += '</div>'; 
+
+                html += `
+                    <div class="mb-4 bg-white border border-gray-300 rounded-lg shadow-sm">
+                        <div class="bg-gray-800 hover:bg-gray-700 cursor-pointer px-3 py-2 text-white font-bold flex justify-between items-center transition rounded-t-lg" onclick="toggleProjeto('${safeId}')">
+                            <span class="text-sm">📁 ${pName}</span>
+                            <div class="flex items-center gap-3">
+                                <span class="text-[10px] bg-indigo-500 px-2 py-0.5 rounded shadow">${fatias.length} Fatias de Tempo</span>
+                                <span id="icon_${safeId}" class="text-gray-300 text-xs">${icone}</span>
+                            </div>
+                        </div>
+                        <div id="content_${safeId}" class="p-0 ${displayClass} bg-white rounded-b-lg">
+                            ${slicesHtml}
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        function toggleOrigemLinha(sliceId, origem, isChecked) {
+            const checkboxes = document.querySelectorAll(`.task-checkbox-${sliceId}[data-origin="${origem}"]`);
+            checkboxes.forEach(cb => {
+                cb.checked = isChecked;
+                atualizarStateCheckbox(parseInt(cb.value), isChecked);
+            });
+        }
+
+        async function cadastrarFreela() {
+            const name = document.getElementById('freelaName').value;
+            const email = document.getElementById('freelaEmail').value;
+            if(!name || !email) return alert("Preencha nome e e-mail.");
+            const response = await fetch('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, email: email, role: "freelancer" }) });
+            if (response.ok) { document.getElementById('freelaName').value = ''; document.getElementById('freelaEmail').value = ''; carregarDados(); } 
+            else { const err = await response.json(); alert(err.detail || "Erro ao cadastrar."); }
+        }
+
+        async function atribuirLote(sliceId) {
+            const select = document.getElementById(`select_freela_${sliceId}`);
+            const userId = select.value;
+            if (!userId) return alert("Selecione um freelancer na lista!");
+
+            const checkboxes = document.querySelectorAll(`.task-checkbox-${sliceId}:checked`);
+            if (checkboxes.length === 0) return alert("Marque pelo menos um Movimento para atribuir!");
+
+            const taskIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+            const response = await fetch('/tasks/assign_bulk', { 
+                method: 'PATCH', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ task_ids: taskIds, user_id: parseInt(userId) }) 
+            });
+
+            if (response.ok) { 
+                // Limpeza de memórias para aquela fatia
+                taskIds.forEach(id => tarefasSelecionadas.delete(id));
+                togglesSelecionados.forEach(tid => {
+                    if (tid.startsWith(`toggle_${sliceId}_`)) togglesSelecionados.delete(tid);
+                });
+                freelasSelecionados[sliceId] = ""; 
+                
+                carregarDados(); 
+            } else { alert("Erro ao atribuir tarefas."); }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { carregarDados(); setInterval(carregarDados, 10000); });
+    </script>
+</body>
+</html>

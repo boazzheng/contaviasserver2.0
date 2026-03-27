@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,25 +9,30 @@
     <style>
         #canvas-container {
             position: relative;
-            display: block; /* Ocupa a linha inteira */
-            width: 100%; /* Força a largura máxima do modal */
+            display: block;
+            width: 100%;
             border: 2px solid #e5e7eb;
             border-radius: 0.5rem;
             overflow: hidden;
             background-color: #f9fafb;
         }
+
         #base-image {
             display: block;
-            width: 100%; /* Estica ou encolhe a imagem para caber no container */
-            height: auto; /* Mantém a proporção real para não distorcer */
-            user-select: none; /* Evita que o usuário "puxe" a imagem sem querer */
+            width: 100%;
+            height: auto;
+            user-select: none;
         }
+
         #draw-canvas {
-            position: absolute; top: 0; left: 0;
-            cursor: crosshair; /* Cursor de precisão (cruz) */
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
         }
     </style>
 </head>
+
 <body class="bg-gray-100 font-sans leading-normal tracking-normal relative">
 
     <nav class="bg-gray-800 p-4 shadow-lg">
@@ -40,140 +46,255 @@
         <div class="flex justify-between items-center mb-6">
             <div>
                 <h1 class="text-2xl font-bold text-gray-800 mb-2">Fila de Staging</h1>
-                <p class="text-gray-600">Vídeos aguardando fatiamento e configuração de zonas.</p>
+                <p class="text-gray-600">Vídeos aguardando fatiamento e configuração de zonas OD.</p>
             </div>
-            <button onclick="limparFilaInteira()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition duration-150">🗑️ Limpar Fila</button>
+            <button onclick="limparFilaInteira()"
+                class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow transition duration-150">🗑️
+                Limpar Fila</button>
         </div>
 
         <div class="bg-white shadow-md rounded-lg overflow-hidden overflow-x-auto">
             <table class="min-w-full leading-normal">
                 <thead>
                     <tr>
-                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">ID</th>
-                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Cliente</th>
-                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Projeto</th>
-                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Arquivo</th>
-                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                        <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase">Ações</th>
+                        <th class="px-3 py-2 border-b-2 border-gray-200 bg-gray-100 w-8"></th>
+                        <th
+                            class="px-3 py-2 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Arquivo de Vídeo</th>
+                        <th
+                            class="px-3 py-2 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Status</th>
+                        <th
+                            class="px-3 py-2 border-b-2 border-gray-200 bg-gray-100 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Ações do Vídeo</th>
                     </tr>
                 </thead>
-                <tbody id="tabela-videos"><tr><td colspan="6" class="text-center py-4 text-gray-500">Carregando dados...</td></tr></tbody>
+                <tbody id="tabela-videos">
+                    <tr>
+                        <td colspan="4" class="text-center py-4 text-gray-500">Carregando dados...</td>
+                    </tr>
+                </tbody>
             </table>
         </div>
     </div>
 
-    <div id="configModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 relative flex flex-col max-h-[90vh]">
-            <h2 class="text-xl font-bold mb-4 text-gray-800">Configurar Vídeo #<span id="modalVideoId"></span></h2>
-            
+    <div id="modalProjeto" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl p-8 relative flex flex-col max-h-[90vh]">
+            <button onclick="fecharModalProjeto()"
+                class="absolute top-4 right-5 text-gray-400 hover:text-gray-700 font-bold text-3xl transition-colors"
+                title="Fechar Janela">×</button>
+            <h2 class="text-xl font-bold mb-5 text-gray-800">Mapeamento do Projeto: <span id="modalProjectName"
+                    class="text-indigo-600"></span></h2>
+
             <div class="flex-grow overflow-y-auto pr-2">
-                <div class="mb-4 bg-gray-50 p-4 rounded border">
-                    <h3 class="font-semibold text-gray-700 border-b pb-1 mb-2">1. Fatiamento Automático (Pedaços de 1h)</h3>
-                    <div class="flex space-x-2">
-                        <input type="time" id="startTime" class="border p-2 rounded w-full" placeholder="Início">
-                        <input type="time" id="endTime" class="border p-2 rounded w-full" placeholder="Fim">
-                        <button onclick="adicionarFatia()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 rounded font-bold whitespace-nowrap">Fatiar</button>
+                <p class="text-xs text-gray-500 mb-2">💡 Clique para adicionar pontos. <b>Botão direito apaga o último
+                        ponto.</b> Clique no 1º ponto (verde) para fechar a zona.</p>
+
+                <div class="flex justify-between items-center mb-3">
+                    <select id="frameSelector" onchange="mudarFrameBase()"
+                        class="border p-2 rounded text-sm bg-white shadow-sm w-1/2">
+                        <option value="">Carregando frames...</option>
+                    </select>
+                    <button onclick="limparCanvas()"
+                        class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-3 rounded font-bold">🧹
+                        Limpar Marcações OD</button>
+                </div>
+
+                <div class="text-center bg-gray-100 p-2 rounded flex justify-center">
+                    <div id="canvas-container">
+                        <img id="base-image" src="" alt="Frame Base" onload="ajustarCanvas()">
+                        <canvas id="draw-canvas"></canvas>
                     </div>
                 </div>
 
-                <div class="mb-2">
-                    <h3 class="font-semibold text-gray-700 border-b pb-1 mb-2">2. Desenhar Zonas de Análise (Múltiplas)</h3>
-                    <p class="text-xs text-gray-500 mb-2">💡 Clique para adicionar pontos. <b>Botão direito apaga o último ponto.</b> Clique no 1º ponto (verde) para fechar a zona atual.</p>
-                    
-                    <div class="flex justify-between items-center mb-2">
-                        <select id="frameSelector" onchange="mudarFrameBase()" class="border p-2 rounded text-sm bg-white shadow-sm w-1/2"><option value="">Carregando frames...</option></select>
-                        <button onclick="limparCanvas()" class="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-3 rounded font-bold">🧹 Apagar Tudo</button>
-                    </div>
+                <div class="flex flex-col mt-4 p-3 bg-white rounded border border-blue-200 shadow-sm mb-2">
+                    <p class="text-sm font-bold text-gray-700 mb-2">Zonas desenhadas para este cruzamento:</p>
+                    <ul id="listaZonas" class="text-sm text-gray-600 list-inside list-disc mb-3 pl-1"></ul>
 
-                    <div class="text-center bg-gray-100 p-2 rounded flex justify-center">
-                        <div id="canvas-container">
-                            <img id="base-image" src="" alt="Frame Base" onload="ajustarCanvas()">
-                            <canvas id="draw-canvas"></canvas>
+                    <div class="mt-2 mb-4 p-3 bg-gray-50 rounded border border-gray-200">
+                        <p class="text-sm font-bold text-gray-700 mb-2">🔄 Matriz de Movimentos (Origem ➔ Destino):</p>
+                        <div id="listaMovimentos" class="flex flex-wrap gap-2">
+                            <p class="text-xs text-gray-500 italic">Desenhe pelo menos 2 zonas para gerar movimentos.
+                            </p>
                         </div>
                     </div>
 
-                    <div class="flex flex-col mt-3 p-3 bg-white rounded border border-blue-200 shadow-sm">
-                        <p class="text-sm font-bold text-gray-700 mb-2">Zonas desenhadas na tela atual:</p>
-                        <ul id="listaZonas" class="text-sm text-gray-600 list-inside list-disc mb-3">
-                            <li class="text-gray-400 italic list-none">Nenhuma zona concluída. Desenhe na imagem acima.</li>
-                        </ul>
-                        <button onclick="salvarTodasZonas()" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded font-bold transition w-full">
-                            💾 Salvar Todas as Zonas no Banco de Dados
-                        </button>
-                    </div>
+                    <button onclick="salvarTodasZonas()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded font-bold transition w-full">
+                        💾 Salvar Máscara no Projeto
+                    </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="modalFatiamento"
+        class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+            <button onclick="fecharModalFatiamento()"
+                class="absolute top-4 right-5 text-gray-400 hover:text-gray-700 font-bold text-2xl transition-colors">×</button>
+            <h2 class="text-lg font-bold mb-4 text-gray-800">Fatiar Vídeo #<span id="fatiamentoVideoId"></span></h2>
+
+            <div class="mb-4 bg-gray-50 p-3 rounded border border-gray-200 shadow-inner">
+                <label class="block text-xs font-bold text-gray-700 mb-1">🕒 Início Real da Câmera (Obrigatório)</label>
+                <input type="time" id="baseTime"
+                    class="border p-2 rounded w-full font-mono text-indigo-700 font-bold focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    value="06:00">
             </div>
 
-            <div class="flex justify-end space-x-2 border-t pt-4 mt-2"><button onclick="fecharModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Fechar</button></div>
+            <p class="text-xs font-bold text-gray-600 mb-2">✂️ Cortes do arquivo de vídeo <span
+                    class="font-normal text-gray-500">(Opcional - Padrão: 1h inteira)</span>:</p>
+            <div class="flex space-x-2 mb-4">
+                <input type="time" id="startTime"
+                    class="border border-gray-300 p-2 rounded w-full text-gray-600 bg-white placeholder-gray-400"
+                    placeholder="Início">
+                <input type="time" id="endTime"
+                    class="border border-gray-300 p-2 rounded w-full text-gray-600 bg-white placeholder-gray-400"
+                    placeholder="Fim">
+            </div>
+            <button onclick="adicionarFatia()"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold w-full shadow transition">✂️
+                Processar Fatias</button>
         </div>
     </div>
 
     <script>
-        let videosGlobais = []; let videoAtualId = null; const clientesColapsados = new Set();
-        
+        let videosGlobais = [];
+        let projetoAtualId = null;
+        let videoAtualId = null;
+        const projetosColapsados = new Set();
+        const fatiasEmEdicao = new Set(); // Guarda quais vídeos estão com a tesoura aberta
+
         // Variáveis do Canvas
         const canvas = document.getElementById('draw-canvas'); const ctx = canvas.getContext('2d'); const img = document.getElementById('base-image');
         let pontosAtuais = []; let desenhando = false; let scaleX = 1; let scaleY = 1;
-        let zonasDesenhadas = []; 
+        let zonasDesenhadas = [];
+        let movimentosSelecionados = new Set();
 
-        function toggleCliente(safeName) {
+        // NOVAS VARIÁVEIS DE MEMÓRIA
+        const tesourasAbertas = new Set(); 
+        const valoresInputs = {}; 
+
+        function guardarValorInput(id, campo, valor) {
+            if (!valoresInputs[id]) valoresInputs[id] = { start: '', end: '' };
+            valoresInputs[id][campo] = valor;
+        }
+
+        function toggleProjeto(safeName) {
             const linhas = document.querySelectorAll(`.grupo-${safeName}`); const icone = document.getElementById(`icon-${safeName}`);
-            if (clientesColapsados.has(safeName)) { clientesColapsados.delete(safeName); linhas.forEach(l => l.classList.remove('hidden')); if(icone) icone.innerText = '▼'; }
-            else { clientesColapsados.add(safeName); linhas.forEach(l => l.classList.add('hidden')); if(icone) icone.innerText = '▶'; }
+            if (projetosColapsados.has(safeName)) { projetosColapsados.delete(safeName); linhas.forEach(l => l.classList.remove('hidden')); if (icone) icone.innerText = '▼'; }
+            else { projetosColapsados.add(safeName); linhas.forEach(l => l.classList.add('hidden')); if (icone) icone.innerText = '▶'; }
         }
 
         async function carregarFila() {
             try {
                 const response = await fetch('/videos/staged');
-                const data = await response.json(); videosGlobais = data.videos; 
+                const data = await response.json(); videosGlobais = data.videos;
                 const tbody = document.getElementById('tabela-videos'); let novasLinhas = '';
 
-                if (videosGlobais.length === 0) { novasLinhas = '<tr><td colspan="6" class="text-center py-4 text-gray-500">Fila vazia.👀</td></tr>'; }
-                else {
-                    const videosAgrupados = {};
-                    videosGlobais.forEach(video => { const nomeClient = video.project?.client?.name || 'Desconhecido'; if (!videosAgrupados[nomeClient]) videosAgrupados[nomeClient] = []; videosAgrupados[nomeClient].push(video); });
+                if (videosGlobais.length === 0) {
+                    novasLinhas = '<tr><td colspan="4" class="text-center py-6 text-gray-500 font-medium">✨ Fila limpa! Nenhum vídeo aguardando.</td></tr>';
+                } else {
+                    // AGRUPANDO POR PROJETO
+                    const projetosAgrupados = {};
+                    videosGlobais.forEach(video => {
+                        if (!video.project) return;
+                        const pid = video.project.id;
+                        if (!projetosAgrupados[pid]) {
+                            projetosAgrupados[pid] = {
+                                id: pid,
+                                nomeProjeto: video.project.name,
+                                nomeCliente: video.project.client?.name || 'Desconhecido',
+                                videos: [],
+                                temMask: video.zones && video.zones.length > 0,
+                                temConfigurado: false // NOVO: Saber se há vídeos prontos para IA
+                            };
+                        }
+                        projetosAgrupados[pid].videos.push(video);
+                        if (video.zones && video.zones.length > 0) projetosAgrupados[pid].temMask = true;
+                        if (video.status === 'configured') projetosAgrupados[pid].temConfigurado = true;
+                    });
 
-                    for (const [cliente, videos] of Object.entries(videosAgrupados)) {
-                        const safeName = cliente.replace(/[^a-zA-Z0-9]/g, '_'); const isColapsado = clientesColapsados.has(safeName);
+                    for (const [pid, projeto] of Object.entries(projetosAgrupados)) {
+                        const safeName = `proj_${pid}`; const isColapsado = projetosColapsados.has(safeName);
                         const icone = isColapsado ? '▶' : '▼'; const displayClass = isColapsado ? 'hidden' : '';
 
-                        novasLinhas += `<tr class="bg-gray-200 hover:bg-gray-300 transition cursor-pointer" onclick="toggleCliente('${safeName}')"><td colspan="6" class="px-5 py-2 text-sm font-bold border-b border-gray-300 shadow-sm"><span id="icon-${safeName}" class="inline-block w-4 mr-1">${icone}</span> 🏢 ${cliente} <span class="text-xs font-normal ml-2">(${videos.length} vídeo)</span></td></tr>`;
+                        // CABEÇALHO DO PROJETO (COM OS BOTÕES)
+                        const btnZonasCor = projeto.temMask ? 'text-blue-600 hover:text-blue-800' : 'text-indigo-600 hover:text-indigo-800';
+                        const btnZonasTxt = projeto.temMask ? '✏️ Editar Zonas' : '✏️ Criar Zonas';
 
-                        videos.forEach(video => {
-                            const nomeProjeto = video.project?.name || 'Desconhecido';
-                            let statusBadge = ''; let btnConfig = ''; let btnAprovar = '';
+                        let botoesProjeto = `<button onclick="abrirModalProjeto(${pid}, '${projeto.nomeProjeto}')" class="${btnZonasCor} font-bold text-sm bg-white px-3 py-1 rounded shadow-sm hover:shadow transition">${btnZonasTxt}</button>`;
 
-                            // A NOVA ESTEIRA DE STATUS:
-                            if (video.status === 'staged') { 
-                                statusBadge = '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-bold">📥 Baixando...</span>'; 
-                                btnConfig = `<button disabled class="bg-gray-300 text-gray-500 font-bold py-1 px-3 rounded text-xs mr-2 cursor-not-allowed">Aguarde</button>`; 
-                            }
-                            else if (video.status === 'ready') { 
-                                statusBadge = '<span class="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-bold">⚙️ A configurar</span>'; 
-                                btnConfig = `<button onclick="abrirModal(${video.id})" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-1 px-3 rounded text-xs mr-2 shadow transition">Configurar</button>`; 
-                            }
-                            else if (video.status === 'configured') { 
-                                statusBadge = '<span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-bold">🛠️ Configurado</span>'; 
-                                btnConfig = `<button onclick="abrirModal(${video.id})" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded text-xs mr-2 shadow transition">Editar</button>`; 
-                                btnAprovar = `<button onclick="aprovarVideo(${video.id})" class="bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded text-xs mr-2 shadow transition">✔ Liberar p/ IA</button>`;
-                            }
-                            else if (video.status === 'approved') {
-                                statusBadge = '<span class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-bold">🚀 Pronto</span>'; 
-                                btnConfig = `<button onclick="abrirModal(${video.id})" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-1 px-3 rounded text-xs mr-2 shadow transition">Visualizar</button>`; 
-                            }
+                        // NOVO: Adiciona o botão de aprovar no nível do projeto se houver vídeos configurados
+                        if (projeto.temConfigurado) {
+                            botoesProjeto += `<button onclick="aprovarProjeto(${pid})" title="Liberar todos os vídeos configurados para a IA" class="text-green-600 hover:text-green-800 font-bold text-sm bg-white px-3 py-1 rounded shadow-sm hover:shadow transition ml-2">🚀 Liberar p/ IA</button>`;
+                        }
 
-                            novasLinhas += `<tr class="hover:bg-gray-50 transition grupo-${safeName} ${displayClass}">
-                                <td class="px-5 py-4 border-b text-sm text-gray-500 pl-8">#${video.id}</td>
-                                <td class="px-5 py-4 border-b text-sm font-semibold text-gray-400">↳</td>
-                                <td class="px-5 py-4 border-b text-sm">${nomeProjeto}</td>
-                                <td class="px-5 py-4 border-b text-sm">${video.original_filename}</td>
-                                <td class="px-5 py-4 border-b text-sm">${statusBadge}</td>
-                                <td class="px-5 py-4 border-b text-sm text-center">
-                                    ${btnConfig}
-                                    ${btnAprovar}
-                                    <button onclick="removerVideo(${video.id})" class="bg-red-100 hover:bg-red-200 text-red-700 font-bold py-1 px-3 rounded text-xs shadow">X</button>
+                        novasLinhas += `
+                            <tr class="bg-gray-200 border-b border-gray-300 shadow-sm">
+                                <td colspan="3" class="px-3 py-2 text-sm font-bold text-gray-800 cursor-pointer hover:bg-gray-300 transition" onclick="toggleProjeto('${safeName}')">
+                                    <span id="icon-${safeName}" class="inline-block w-4 mr-1 text-gray-600">${icone}</span> 
+                                    🏢 ${projeto.nomeCliente} &nbsp;>&nbsp; 📁 ${projeto.nomeProjeto} 
+                                    <span class="text-xs font-normal text-gray-500 ml-2">(${projeto.videos.length} vídeo${projeto.videos.length > 1 ? 's' : ''})</span>
                                 </td>
+                                <td class="px-3 py-2 text-center bg-gray-200 whitespace-nowrap">
+                                    ${botoesProjeto}
+                                </td>
+                            </tr>
+                        `;
+
+                        // LINHAS DOS VÍDEOS
+                        projeto.videos.forEach(video => {
+                            let statusIcon = ''; let actionButtons = '';
+
+                            if (video.status === 'staged') {
+                                statusIcon = '<span title="📥 Baixando do Drive..." class="cursor-help text-xl">📥</span>';
+                                actionButtons = `<button disabled title="Aguarde o download" class="text-gray-400 cursor-not-allowed mx-1 text-lg">⏳</button>`;
+                            }
+                            else if (video.status === 'ready' || video.status === 'configured') { 
+                                statusIcon = video.status === 'ready' 
+                                    ? '<span title="Aguardando Zonas do Projeto" class="cursor-help text-xl">⚙️</span>' 
+                                    : '<span title="🛠️ Pronto para IA" class="cursor-help text-xl">🛠️</span>'; 
+                                
+                                // RECUPERA OS VALORES DA MEMÓRIA
+                                const mem = valoresInputs[video.id] || { start: '', end: '' };
+                                const isTesouraAberta = tesourasAbertas.has(video.id);
+                                const boxEndClass = isTesouraAberta ? 'flex' : 'hidden';
+                                const btnTesouraClass = isTesouraAberta ? 'hidden' : 'flex';
+
+                                actionButtons = `
+                                    <div class="inline-flex items-center bg-white border border-gray-300 rounded shadow-sm mr-2 h-7">
+                                        
+                                        <div class="flex items-center px-2 hover:bg-gray-50 transition h-full" title="Início real da gravação">
+                                            <span class="text-[10px] text-gray-400 font-bold mr-1 tracking-wider">INÍCIO</span>
+                                            <input type="time" id="start_${video.id}" value="${mem.start}" oninput="guardarValorInput(${video.id}, 'start', this.value)" class="text-xs border-none outline-none w-[65px] text-gray-800 font-mono font-bold bg-transparent p-0 focus:ring-0">
+                                        </div>
+
+                                        <button onclick="toggleFim(${video.id})" id="btn_toggle_end_${video.id}" class="${btnTesouraClass} px-2 border-l border-gray-200 text-gray-400 hover:text-indigo-600 hover:bg-gray-50 h-full transition items-center justify-center" title="Cortar arquivo (Adicionar Fim)">
+                                            ✂️
+                                        </button>
+
+                                        <div id="box_end_${video.id}" class="${boxEndClass} items-center px-2 border-l border-gray-200 bg-yellow-50 h-full transition" title="Fim do corte">
+                                            <span class="text-[10px] text-yellow-700 font-bold mr-1 tracking-wider">FIM</span>
+                                            <input type="time" id="end_${video.id}" value="${mem.end}" oninput="guardarValorInput(${video.id}, 'end', this.value)" class="text-xs border-none outline-none w-[65px] text-yellow-900 font-mono font-bold bg-transparent p-0 focus:ring-0">
+                                        </div>
+
+                                        <button onclick="fatiarInline(${video.id})" id="btn_save_${video.id}" class="h-full px-3 text-white bg-indigo-600 hover:bg-indigo-700 rounded-r transition text-xs font-bold flex items-center border-l border-indigo-700">
+                                            Salvar
+                                        </button>
+                                        
+                                    </div>
+                                `; 
+                            }
+
+                            actionButtons += `<button onclick="removerVideo(${video.id})" title="Remover Vídeo" class="text-red-500 hover:text-red-700 hover:scale-110 transition-transform mx-1 text-lg align-middle">🗑️</button>`;
+
+                            novasLinhas += `
+                            <tr class="hover:bg-gray-50 transition grupo-${safeName} ${displayClass}">
+                                <td class="px-3 py-2 border-b text-sm font-semibold text-gray-400 text-center">↳</td>
+                                <td class="px-3 py-2 border-b text-sm text-gray-700 truncate max-w-[200px]" title="${video.original_filename}">${video.original_filename}</td>
+                                <td class="px-3 py-2 border-b text-center">${statusIcon}</td>
+                                <td class="px-3 py-2 border-b text-center whitespace-nowrap">${actionButtons}</td>
                             </tr>`;
                         });
                     }
@@ -182,66 +303,106 @@
             } catch (error) { console.error("Erro ao carregar fila:", error); }
         }
 
-        function abrirModal(id) {
-            videoAtualId = id; document.getElementById('modalVideoId').innerText = id;
-            const video = videosGlobais.find(v => v.id === id); const selector = document.getElementById('frameSelector');
-            
-            // Limpa o canvas e as memórias ANTES de carregar os dados novos
-            selector.innerHTML = ''; 
-            zonasDesenhadas = []; 
-            pontosAtuais = [];
-            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+        // ==========================================
+        // LÓGICA DO MODAL DE PROJETO (CANVAS MÚLTIPLO)
+        // ==========================================
+        function abrirModalProjeto(pid, nomeProjeto) {
+            projetoAtualId = pid;
+            document.getElementById('modalProjectName').innerText = nomeProjeto;
 
-            if (video && video.frame_urls && video.frame_urls.length > 0) {
-                video.frame_urls.forEach((url, index) => { const opt = document.createElement('option'); opt.value = url; opt.innerText = `Hora ${index}`; selector.appendChild(opt); });
-                img.src = video.frame_urls[0]; 
-            } else { selector.innerHTML = '<option value="">Nenhum frame.</option>'; img.src = ''; }
-            
-            document.getElementById('configModal').classList.remove('hidden');
+            const videosDoProjeto = videosGlobais.filter(v => v.project?.id === pid);
+            const selector = document.getElementById('frameSelector');
+            selector.innerHTML = ''; zonasDesenhadas = []; pontosAtuais = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            movimentosSelecionados.clear();
+
+            // INTELIGÊNCIA CORRIGIDA: Ele sabe que está a editar o banco se o vídeo já tiver Zonas salvas.
+            const videoReferencia = videosDoProjeto.find(v => v.zones && v.zones.length > 0);
+
+            if (videoReferencia) {
+                window.isEditandoBanco = true;
+                if (videoReferencia.project && videoReferencia.project.movements) {
+                    // Carrega EXATAMENTE o que estava no banco
+                    videoReferencia.project.movements.forEach(m => movimentosSelecionados.add(m));
+                }
+            } else {
+                window.isEditandoBanco = false; // Projeto virgem
+            }
+
+            let todosFrames = [];
+            videosDoProjeto.forEach(video => {
+                if (video.frame_urls) {
+                    video.frame_urls.forEach((url, index) => {
+                        const nomeCurto = video.original_filename.substring(0, 15) + "...";
+                        todosFrames.push({ url: url, label: `[${nomeCurto}] Frame ${index + 1}` });
+                    });
+                }
+            });
+
+            if (todosFrames.length > 0) {
+                todosFrames.forEach(frame => {
+                    const opt = document.createElement('option'); opt.value = frame.url; opt.innerText = frame.label;
+                    selector.appendChild(opt);
+                });
+                img.src = todosFrames[0].url;
+            } else {
+                selector.innerHTML = '<option value="">Nenhum frame extraído ainda.</option>'; img.src = '';
+            }
+
+            document.getElementById('modalProjeto').classList.remove('hidden');
         }
 
-        function fecharModal() { document.getElementById('configModal').classList.add('hidden'); videoAtualId = null; limparCanvas(); }
+        function fecharModalProjeto() { document.getElementById('modalProjeto').classList.add('hidden'); projetoAtualId = null; limparCanvas(); }
+
         function mudarFrameBase() { const url = document.getElementById('frameSelector').value; if (url) { img.src = url; limparCanvas(); } }
 
-        // ==========================================
-        // CARREGAMENTO DA MÁSCARA SALVA NO BANCO
-        // ==========================================
         function ajustarCanvas() {
             canvas.width = img.clientWidth; canvas.height = img.clientHeight;
             scaleX = img.naturalWidth / img.clientWidth; scaleY = img.naturalHeight / img.clientHeight;
-            
-            const video = videosGlobais.find(v => v.id === videoAtualId);
-            if (video && video.zones && video.zones.length > 0) {
-                // Se a memória está vazia, nós "importamos" as zonas da Base de Dados
+
+            // Busca as zonas do primeiro vídeo que encontrarmos desse projeto
+            const videoReferencia = videosGlobais.find(v => v.project?.id === projetoAtualId && v.zones && v.zones.length > 0);
+
+            if (videoReferencia && videoReferencia.zones) {
                 if (zonasDesenhadas.length === 0 && pontosAtuais.length === 0) {
-                    zonasDesenhadas = video.zones.map(z => {
-                        return {
-                            name: z.name,
-                            geometry: z.geometry,
-                            // Mágica: Converte a coordenada real (4K) para a tela miniatura (400px) usando a escala!
-                            pontosTela: z.geometry.map(p => { return { x: p[0] / scaleX, y: p[1] / scaleY }; })
-                        };
+                    zonasDesenhadas = videoReferencia.zones.map(z => {
+                        return { name: z.name, geometry: z.geometry, pontosTela: z.geometry.map(p => { return { x: p[0] / scaleX, y: p[1] / scaleY }; }) };
                     });
                     atualizarListaHTML();
                 } else {
-                    // Se já carregou, mas a pessoa redimensionou a janela do Chrome, recalcula só os pontos visuais
                     zonasDesenhadas.forEach(z => { z.pontosTela = z.geometry.map(p => { return { x: p[0] / scaleX, y: p[1] / scaleY }; }); });
                 }
             }
-            desenharTudo(); 
+            desenharTudo();
         }
 
+        // ... O resto da lógica do motor de desenho (getMousePos, desenharTudo, eventListeners) é idêntico ao anterior ...
         function getMousePos(evt) { const rect = canvas.getBoundingClientRect(); return { x: (evt.clientX - rect.left), y: (evt.clientY - rect.top) }; }
 
         function desenharTudo(mousePos = null) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height); 
-
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             zonasDesenhadas.forEach(zona => {
                 ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#3b82f6'; ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
                 ctx.moveTo(zona.pontosTela[0].x, zona.pontosTela[0].y);
                 for (let i = 1; i < zona.pontosTela.length; i++) { ctx.lineTo(zona.pontosTela[i].x, zona.pontosTela[i].y); }
                 ctx.closePath(); ctx.stroke(); ctx.fill();
-                ctx.fillStyle = '#1e3a8a'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(zona.name, zona.pontosTela[0].x + 5, zona.pontosTela[0].y - 5);
+
+                // NOVO: Cálculo do centro do polígono (Centroid) para o texto
+                let cx = 0, cy = 0;
+                zona.pontosTela.forEach(p => { cx += p.x; cy += p.y; });
+                cx /= zona.pontosTela.length;
+                cy /= zona.pontosTela.length;
+
+                // NOVO: Texto grande, branco com contorno preto (Legível em qualquer fundo!)
+                ctx.font = 'bold 18px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.strokeText(zona.name, cx, cy);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(zona.name, cx, cy);
             });
 
             if (pontosAtuais.length > 0) {
@@ -251,15 +412,15 @@
                 if (desenhando && mousePos) { ctx.lineTo(mousePos.x, mousePos.y); }
                 ctx.stroke();
                 pontosAtuais.forEach((p, index) => {
-                    ctx.beginPath(); ctx.fillStyle = index === 0 ? '#10b981' : '#ef4444'; 
+                    ctx.beginPath(); ctx.fillStyle = index === 0 ? '#10b981' : '#ef4444';
                     const raio = (index === 0 && desenhando) ? 8 : 5;
                     ctx.arc(p.x, p.y, raio, 0, 2 * Math.PI); ctx.fill();
                 });
             }
         }
 
-        canvas.addEventListener('mousedown', function(e) {
-            if (e.button === 2) return; 
+        canvas.addEventListener('mousedown', function (e) {
+            if (e.button === 2) return;
             const pos = getMousePos(e);
             if (pontosAtuais.length > 2) {
                 const distRoot = Math.sqrt(Math.pow(pos.x - pontosAtuais[0].x, 2) + Math.pow(pos.y - pontosAtuais[0].y, 2));
@@ -268,15 +429,11 @@
             desenhando = true; pontosAtuais.push(pos); desenharTudo(pos);
         });
 
-        canvas.addEventListener('mousemove', function(e) { if (!desenhando) return; const pos = getMousePos(e); desenharTudo(pos); });
+        canvas.addEventListener('mousemove', function (e) { if (!desenhando) return; const pos = getMousePos(e); desenharTudo(pos); });
+        canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); if (pontosAtuais.length > 0) { pontosAtuais.pop(); if (pontosAtuais.length === 0) desenhando = false; desenharTudo(getMousePos(e)); } });
 
-        canvas.addEventListener('contextmenu', function(e) {
-            e.preventDefault(); 
-            if (pontosAtuais.length > 0) { pontosAtuais.pop(); if (pontosAtuais.length === 0) desenhando = false; desenharTudo(getMousePos(e)); }
-        });
-
-        function fecharPoligonoAtual() { 
-            desenhando = false; 
+        function fecharPoligonoAtual() {
+            desenhando = false;
             setTimeout(() => {
                 const name = prompt("Digite o nome desta Zona (Ex: Entrada Faixa 1):");
                 if (name && name.trim() !== "") {
@@ -290,47 +447,203 @@
 
         function atualizarListaHTML() {
             const ul = document.getElementById('listaZonas');
-            if (zonasDesenhadas.length === 0) { ul.innerHTML = '<li class="text-gray-400 italic list-none">Nenhuma zona concluída. Desenhe na imagem acima.</li>'; return; }
-            ul.innerHTML = zonasDesenhadas.map((z, idx) => `
-                <li class="font-semibold text-blue-800">✔️ ${z.name} <button onclick="removerZonaConcluida(${idx})" class="text-red-500 font-normal hover:text-red-700 text-xs ml-2 cursor-pointer">[Apagar Zona]</button></li>
-            `).join('');
+            if (zonasDesenhadas.length === 0) {
+                ul.innerHTML = '<li class="text-gray-400 italic list-none">Nenhuma zona concluída. Desenhe na imagem acima.</li>';
+            } else {
+                ul.innerHTML = zonasDesenhadas.map((z, idx) => `<li class="font-semibold text-blue-800">✔️ ${z.name} <button onclick="removerZonaConcluida(${idx})" class="text-red-500 font-normal hover:text-red-700 text-xs ml-2 cursor-pointer">[Apagar]</button></li>`).join('');
+            }
+
+            // NOVO: Chama o cálculo de movimentos sempre que a lista de zonas mudar
+            calcularExibirMovimentos();
+        }
+
+        // MOTOR DA MATRIZ OD
+        function calcularExibirMovimentos() {
+            const container = document.getElementById('listaMovimentos');
+            if (zonasDesenhadas.length < 1) {
+                container.innerHTML = '<p class="text-xs text-gray-500 italic">Desenhe as zonas para gerar a matriz.</p>';
+                return;
+            }
+
+            let htmlMovimentos = '<div class="grid grid-cols-2 md:grid-cols-3 gap-3 w-full">';
+
+            zonasDesenhadas.forEach(origem => {
+                zonasDesenhadas.forEach(destino => {
+                    const movName = `${origem.name} ➔ ${destino.name}`;
+                    const idSafe = movName.replace(/[^a-zA-Z0-9]/g, '');
+
+                    let isChecked = false;
+
+                    // LÓGICA DE INTELIGÊNCIA: Se já veio do banco, confia no banco.
+                    // Se é um projeto novo (nunca salvo), usa a regra padrão: origem != destino
+                    if (window.isEditandoBanco) {
+                        isChecked = movimentosSelecionados.has(movName);
+                    } else {
+                        isChecked = origem.name !== destino.name;
+                        if (isChecked) movimentosSelecionados.add(movName);
+                    }
+
+                    const borderClass = isChecked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 bg-white opacity-60';
+
+                    htmlMovimentos += `
+                        <label id="label_${idSafe}" class="flex items-center space-x-2 border ${borderClass} p-2 rounded cursor-pointer transition select-none hover:shadow-md">
+                            <input type="checkbox" value="${movName}" ${isChecked ? 'checked' : ''} onchange="toggleMovimento(this, '${movName}', '${idSafe}')" class="h-4 w-4 text-indigo-600 rounded cursor-pointer">
+                            <span class="text-xs font-bold text-gray-800">${movName}</span>
+                        </label>
+                    `;
+                });
+            });
+
+            htmlMovimentos += '</div>';
+            container.innerHTML = htmlMovimentos;
+        }
+
+        function toggleMovimento(checkbox, movName, idSafe) {
+            const label = document.getElementById(`label_${idSafe}`);
+            if (checkbox.checked) {
+                movimentosSelecionados.add(movName);
+                label.classList.add('border-indigo-500', 'bg-indigo-50');
+                label.classList.remove('border-gray-300', 'bg-white', 'opacity-60');
+            } else {
+                movimentosSelecionados.delete(movName);
+                label.classList.remove('border-indigo-500', 'bg-indigo-50');
+                label.classList.add('border-gray-300', 'bg-white', 'opacity-60');
+            }
         }
 
         function removerZonaConcluida(idx) { zonasDesenhadas.splice(idx, 1); atualizarListaHTML(); desenharTudo(); }
         function limparCanvas() { pontosAtuais = []; zonasDesenhadas = []; desenhando = false; atualizarListaHTML(); ctx.clearRect(0, 0, canvas.width, canvas.height); }
 
-        async function adicionarFatia() {
-            const start = document.getElementById('startTime').value; const end = document.getElementById('endTime').value;
-            if(!start || !end) return alert("Preencha o fatiamento!");
-            await fetch(`/videos/${videoAtualId}/slices/auto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ start_time: start, end_time: end }) });
-            alert("✅ Fatias criadas!"); document.getElementById('startTime').value = ''; document.getElementById('endTime').value = '';
-        }
-
         async function salvarTodasZonas() {
-            if(zonasDesenhadas.length === 0) return alert("Desenhe pelo menos uma zona antes de salvar!");
-            const payload = zonasDesenhadas.map(z => { return { name: z.name, geometry: z.geometry } });
-            const response = await fetch(`/videos/${videoAtualId}/zones/bulk`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if(response.ok) { alert(`✅ ${zonasDesenhadas.length} zonas salvas!`); fecharModal(); carregarFila(); } else { alert("Erro ao salvar Zonas."); }
+            if (zonasDesenhadas.length === 0) return alert("Desenhe pelo menos uma zona antes de salvar!");
+
+            // CORREÇÃO: Usamos diretamente o ID do Projeto que já está na memória, sem procurar por vídeo!
+            const projectId = projetoAtualId;
+
+            if (!projectId) return alert("Erro: ID do projeto não encontrado.");
+
+            // O novo Payload empacota as Zonas e os Movimentos Toggled
+            const payload = {
+                zones: zonasDesenhadas.map(z => { return { name: z.name, geometry: z.geometry } }),
+                movements: Array.from(movimentosSelecionados)
+            };
+
+            try {
+                const response = await fetch(`/projects/${projectId}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    alert(`✅ Zonas e Matriz OD salvas no Projeto!`);
+                    fecharModalProjeto();
+                    carregarFila();
+                } else {
+                    const erro = await response.json();
+                    alert("Erro ao salvar configuração: " + (erro.detail || "Erro no servidor"));
+                }
+            } catch (error) {
+                console.error("Falha na requisição:", error);
+                alert("Erro de conexão ao tentar salvar.");
+            }
         }
 
-        async function aprovarVideo(id) {
-            if (!confirm(`Confirmar liberação do vídeo #${id} para o processamento da IA?`)) return;
-            await fetch(`/videos/${id}/approve`, { method: 'PATCH' });
-            carregarFila();
+        // ==========================================
+        // LÓGICA DE FATIAMENTO INLINE E INTERFACE
+        // ==========================================
+
+        // Abre o campo de fim de tempo ao clicar na tesoura
+        function toggleFim(id) {
+            const box = document.getElementById(`box_end_${id}`);
+            const btn = document.getElementById(`btn_toggle_end_${id}`);
+            if (box.classList.contains('hidden')) {
+                box.classList.remove('hidden');
+                box.classList.add('flex');
+                btn.classList.add('hidden');
+
+                // NOVO: Avisa o sistema para NÃO atualizar a tela enquanto esta tesoura estiver aberta
+                fatiasEmEdicao.add(id);
+            }
+        }
+
+        async function fatiarInline(id) {
+            const startVal = document.getElementById(`start_${id}`).value;
+            const boxEnd = document.getElementById(`box_end_${id}`);
+            const isEndVisible = !boxEnd.classList.contains('hidden');
+            const endVal = isEndVisible ? document.getElementById(`end_${id}`).value : "";
+
+            if (!startVal) return alert("⚠️ Preencha a hora de INÍCIO antes de salvar!");
+
+            let startRel = "00:00";
+            let endRel = "01:00";
+
+            if (endVal) {
+                let [h1, m1] = startVal.split(':').map(Number);
+                let [h2, m2] = endVal.split(':').map(Number);
+                let diffMins = (h2 * 60 + m2) - (h1 * 60 + m1);
+                if (diffMins <= 0) diffMins += 24 * 60;
+                let hDiff = Math.floor(diffMins / 60);
+                let mDiff = diffMins % 60;
+                endRel = `${String(hDiff).padStart(2, '0')}:${String(mDiff).padStart(2, '0')}`;
+            }
+
+            const response = await fetch(`/videos/${id}/slices/auto`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base_time: startVal, start_time: startRel, end_time: endRel })
+            });
+
+            if (response.ok) {
+                // NOVO: Terminou de editar, libera o sistema para voltar a atualizar!
+                fatiasEmEdicao.delete(id);
+                carregarFila();
+            } else {
+                alert("Erro ao processar fatias.");
+            }
+        }
+
+        async function aprovarProjeto(pid) {
+            if (!confirm(`Confirmar liberação de TODOS os vídeos deste projeto para processamento da IA?`)) return;
+            const response = await fetch(`/projects/${pid}/approve`, { method: 'PATCH' });
+            if (response.ok) {
+                const data = await response.json();
+                alert(`✅ ${data.message}`);
+                carregarFila();
+            } else {
+                alert("Erro ao liberar vídeos.");
+            }
         }
 
         async function removerVideo(id) { if (!confirm(`Remover?`)) return; await fetch(`/videos/staged/${id}`, { method: 'DELETE' }); carregarFila(); }
-        async function limparFilaInteira() { if (!confirm("Limpar?")) return; await fetch('/videos/staged', { method: 'DELETE' }); carregarFila(); }
+        async function limparFilaInteira() { if (!confirm("Limpar a fila inteira?")) return; await fetch('/videos/staged', { method: 'DELETE' }); carregarFila(); }
 
-        // Garante que o Canvas recalcule as escalas se a janela do Chrome mudar de tamanho
         window.addEventListener('resize', () => {
-            const modalFechado = document.getElementById('configModal').classList.contains('hidden');
-            if (!modalFechado && img.src) {
-                ajustarCanvas();
-            }
+            const modalFechado = document.getElementById('modalProjeto').classList.contains('hidden');
+            if (!modalFechado && img.src) ajustarCanvas();
         });
-        
-        document.addEventListener('DOMContentLoaded', () => { carregarFila(); setInterval(carregarFila, 5000); });
+
+        function autoRefreshInteligente() {
+            // 1. O utilizador está com o cursor piscando dentro de algum input de hora?
+            const digitando = document.activeElement && document.activeElement.tagName === 'INPUT';
+            
+            // 2. O modal de desenhar zonas de projeto está aberto no meio da tela?
+            const modalAberto = !document.getElementById('modalProjeto').classList.contains('hidden');
+            
+            // Se qualquer uma dessas coisas for verdade (ou se a tesoura estiver aberta), PULA o refresh!
+            if (digitando || modalAberto || fatiasEmEdicao.size > 0) {
+                return; // Fica em silêncio e tenta de novo daqui a 10 segundos
+            }
+            
+            carregarFila(); // Se a tela estiver livre, atualiza os dados
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { 
+            carregarFila(); 
+            // O novo motor de atualização inteligente
+            setInterval(autoRefreshInteligente, 10000); 
+        });
     </script>
 </body>
+
 </html>

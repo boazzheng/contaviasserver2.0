@@ -1,38 +1,78 @@
 from pydantic import BaseModel
+from typing import Optional, List
 from datetime import datetime
-from typing import Optional, List, Union
 
 # ==========================================
-# SCHEMAS BASE (ÉPICO 1)
+# 1. USERS (Freelas/Admins)
 # ==========================================
+class UserBase(BaseModel):
+    name: str
+    email: str
+    role: str = "freelancer"
 
+class UserCreate(UserBase):
+    pass
+
+class UserResponse(UserBase):
+    id: int
+    class Config:
+        from_attributes = True
+
+# ==========================================
+# 2. CLIENTS
+# ==========================================
 class ClientBase(BaseModel):
     name: str
+
+class ClientCreate(ClientBase):
+    pass
 
 class ClientResponse(ClientBase):
     id: int
     class Config:
         from_attributes = True
 
-class ProjectBase(BaseModel):
+# ==========================================
+# 3. ZONES
+# ==========================================
+class ZoneBase(BaseModel):
     name: str
-    client_id: int
+    geometry: List[List[float]]
 
-class ProjectResponse(ProjectBase):
+class ZoneCreate(ZoneBase):
+    pass
+
+class ZoneResponse(ZoneBase):
     id: int
-    client: Optional[ClientResponse] = None
+    project_id: int
     class Config:
         from_attributes = True
 
 # ==========================================
-# NOVOS SCHEMAS DO ÉPICO 2 (Fatias e Zonas)
+# 4. PROJECTS
 # ==========================================
+class ProjectBase(BaseModel):
+    name: str
+    client_id: int
 
+class ProjectCreate(ProjectBase):
+    pass
+
+class ProjectResponse(ProjectBase):
+    id: int
+    client: Optional[ClientResponse] = None
+    zones: List[ZoneResponse] = []
+    class Config:
+        from_attributes = True
+
+# ==========================================
+# 5. VIDEO SLICES (Depende de User)
+# ==========================================
 class VideoSliceBase(BaseModel):
-    start_time: str
-    end_time: str
-    status: Optional[str] = "pending"
-    assigned_to: Optional[str] = None
+    name: str = "Vídeo Completo" 
+    start_time: int
+    end_time: int
+    nominal_duration: int = 3600
 
 class VideoSliceCreate(VideoSliceBase):
     pass
@@ -40,54 +80,50 @@ class VideoSliceCreate(VideoSliceBase):
 class VideoSliceResponse(VideoSliceBase):
     id: int
     video_id: int
-    class Config:
-        from_attributes = True
-
-class ZoneBase(BaseModel):
-    name: str
-    # O formato que esperamos: [[x,y], [x,y], [x,y], ...]
-    geometry: List[List[float]] 
-
-class ZoneCreate(ZoneBase):
-    pass
-
-class ZoneResponse(ZoneBase):
-    id: int
-    video_id: int
+    status: str
+    assigned_to: Optional[int] = None
+    freelancer: Optional[UserResponse] = None 
     class Config:
         from_attributes = True
 
 # ==========================================
-# SCHEMA DO VÍDEO ATUALIZADO
+# 6. VIDEOS (Depende de Project e Slices)
 # ==========================================
-
 class VideoBase(BaseModel):
-    project_id: Optional[int] = None
     original_filename: str
-    location_name: str
+    location_name: Optional[str] = None
     file_path: str
-    status: Optional[str] = "staged"
 
-class VideoCreate(BaseModel):
+class VideoCreate(VideoBase):
     client_name: str
     project_name: str
-    original_filename: str
-    location_name: str
-    file_path: str
 
 class VideoResponse(VideoBase):
     id: int
+    status: str
     upload_date: datetime
     frame_urls: List[str] = []
     project: Optional[ProjectResponse] = None
     slices: List[VideoSliceResponse] = []
     
-    # Atualizado aqui: Devolvemos zonas!
-    zones: List[ZoneResponse] = [] 
-    
     class Config:
         from_attributes = True
 
-class AutoSliceCreate(BaseModel):
-    start_time: str
-    end_time: str
+class ProjectConfigCreate(BaseModel):
+    zones: List[ZoneCreate]
+    movements: List[str] # Lista com os nomes dos movimentos ativados pelo operador
+
+class MovementResponse(BaseModel):
+    id: int
+    name: str
+    class Config:
+        from_attributes = True
+
+# Opcional: Se quiser que a API já devolva os movimentos ao ler o Projeto
+class ProjectResponse(ProjectBase):
+    id: int
+    client: Optional[ClientResponse] = None
+    zones: List[ZoneResponse] = []
+    movements: List[MovementResponse] = [] # NOVO
+    class Config:
+        from_attributes = True
