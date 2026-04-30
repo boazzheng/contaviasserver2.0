@@ -1,0 +1,363 @@
+{
+  "name": "WhatsApp - Google Drive New Uploads",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "37d73020-8516-4d0f-b153-0e53f4cee7ab",
+      "name": "A cada 5 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -208,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "={{ \"createdTime > '\" + $now.minus({ minutes: 10 }).toISO() + \"' and trashed = false\"}}\n\n",
+        "filter": {},
+        "options": {
+          "fields": [
+            "*"
+          ]
+        }
+      },
+      "id": "c1b1a6b3-db8c-4ffc-89d4-c67436c90b92",
+      "name": "Buscar Novos Arquivos",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -64,
+        128
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "AQdxUhVMBx1WTEnS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://evolution_api:8080/message/sendText/contavias",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "ContaViasSeguro2026"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"120363405704829936@g.us\",\n  \"text\": \"📁 *Novos arquivos detectados!*\\n\\n👤 *Enviado por:* {{ [...new Set($('Agrupar por pasta').item.json.arquivos.map(a => a.lastModifyingUser.displayName))].join(', ') }}\\n📄 *Total nesta pasta:* {{ $('Agrupar por pasta').item.json.arquivos.length }}\\n📂 *Pasta:* {{ $json.name }}\",\n  \"options\": {\n    \"delay\": 1200,\n    \"presence\": \"composing\"\n  }\n}",
+        "options": {}
+      },
+      "id": "8a37bf2d-a3cc-43ab-9b79-1f16178dc063",
+      "name": "Notificar WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        672,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7f8eecbd-7d8d-4313-aa7f-025449e4a8dd",
+              "name": "folderID",
+              "value": "={{ $json.parents[0] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        128
+      ],
+      "id": "50178fd0-4f20-4ff8-b940-bc1a95a14eac",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "const grupos = {};\n\nfor (const item of $input.all()) {\n  // Pega o ID da pasta que você criou no Edit Fields\n  const folderID = item.json.folderID || \"pasta_desconhecida\";\n\n  // Se a pasta ainda não existe na nossa lista, cria uma \"caixa\" para ela\n  if (!grupos[folderID]) {\n    grupos[folderID] = {\n      folderID: folderID,\n      arquivos: []\n    };\n  }\n\n  // Joga o arquivo dentro da caixa da pasta certa\n  grupos[folderID].arquivos.push(item.json);\n}\n\n// Devolve os itens separados para o n8n\nreturn Object.values(grupos).map(grupo => {\n  return { json: grupo };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -96
+      ],
+      "id": "91862fb2-330a-4de3-8ff9-abe3826cf5a3",
+      "name": "Agrupar por pasta"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.folderID }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        144
+      ],
+      "id": "dcc96679-3e9d-4686-b3cc-00216b8efbb7",
+      "name": "Get Folder Name",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "AQdxUhVMBx1WTEnS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "=lista_arquivos",
+        "include": "allOtherFields",
+        "options": {
+          "destinationFieldName": "arquivo"
+        }
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        912,
+        -80
+      ],
+      "id": "7394ed02-4fa6-4636-befc-3eb354a4d6dc",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.arquivo.id }}",
+          "mode": "id"
+        },
+        "options": {
+          "propertiesUi": {
+            "propertyValues": [
+              {
+                "key": "n8n_notificado",
+                "value": "true"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1072,
+        112
+      ],
+      "id": "998b0e59-5d48-4b61-96d2-cd513bea0e5e",
+      "name": "Update file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "AQdxUhVMBx1WTEnS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "85237f96-3757-4e19-ad4b-f86c29d9b93f",
+              "leftValue": "={{ $json.properties?.n8n_notificado || '' }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        80,
+        -80
+      ],
+      "id": "9bc1c17e-2a55-48d8-a778-4931c971a298",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0ed6cb91-df39-4eed-b8ce-86ff4da653e5",
+              "name": "lista_arquivos",
+              "value": "={{ $('Agrupar por pasta').item.json.arquivos }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        768,
+        112
+      ],
+      "id": "47e8c7e9-645e-4fd6-bd37-5729d3d8ee0f",
+      "name": "Edit Fields1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "A cada 5 minutos": {
+      "main": [
+        [
+          {
+            "node": "Buscar Novos Arquivos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Novos Arquivos": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Agrupar por pasta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agrupar por pasta": {
+      "main": [
+        [
+          {
+            "node": "Get Folder Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Folder Name": {
+      "main": [
+        [
+          {
+            "node": "Notificar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Update file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "382c9ba2-5d7a-407c-a018-e66199316e9b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4165517fb43c5c6da35d275778799876df927905aa19cb0c0c16183ab2ddb643"
+  },
+  "id": "coLSj2WtRHxLRmyC",
+  "tags": []
+}

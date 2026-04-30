@@ -115,9 +115,6 @@ def main():
         print(f"Erro: O diretório de entrada não existe: {args.input}")
         sys.exit(1)
 
-    images_base_dir = os.path.join(args.output, "images")
-    labels_base_dir = os.path.join(args.output, "labels")
-
     print(f"Carregando modelo: {args.model}...")
     try:
         model = YOLO(args.model)
@@ -139,36 +136,29 @@ def main():
     print(f"{len(video_files)} vídeos encontrados. Iniciando processamento em lote...")
     
     for video_path in video_files:
-        # --- MUDANÇA PRINCIPAL AQUI ---
-        # 1. Pega a pasta onde o vídeo está e calcula o caminho relativo à pasta raiz de input
         video_dir = os.path.dirname(video_path)
         rel_dir = os.path.relpath(video_dir, args.input)
         
-        # Se o vídeo estiver na raiz do input, rel_dir será '.', então lidamos com isso
         if rel_dir == '.':
             rel_dir = ''
             
-        # 2. Constrói as subpastas espelhando o input dentro do output
-        current_images_dir = os.path.join(images_base_dir, rel_dir)
-        current_labels_dir = os.path.join(labels_base_dir, rel_dir)
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
         
-        # 3. Cria as pastas se não existirem
+        # --- A MÁGICA DO ENCAPSULAMENTO AQUI ---
+        # 1. Cria a pasta com o nome do vídeo
+        video_base_dir = os.path.join(args.output, rel_dir, video_name)
+        
+        # 2. Define as subpastas images e labels DENTRO da pasta do vídeo
+        current_images_dir = os.path.join(video_base_dir, "images")
+        current_labels_dir = os.path.join(video_base_dir, "labels")
+        
+        # 3. Cria a estrutura
         os.makedirs(current_images_dir, exist_ok=True)
         os.makedirs(current_labels_dir, exist_ok=True)
 
-        # 4. Passa o diretório de destino correto para o processador
         process_video(video_path, model, current_images_dir, current_labels_dir, args.conf)
 
     print(f"\nProcessamento em lote concluído! Dataset salvo em: {args.output}")
 
 if __name__ == "__main__":
     main()
-
-
-# python extract_all_vehicles.py --input /mnt/dados/videos --output /mnt/dados/dataset_completo --model yolo11x.pt
-
-# Procedimento geral para treinamento DNIT
-# 1. Extrair os melhores frames de ônibus e caminhões dos vídeos usando este script.
-# 2. A extração dos frames é imperfeito, então é necessário revisar o dataset para remover imagens irrelevantes manualmente.
-# 3. Sincronizar as pastas de labels e imagens usando sync_labels.py.
-# 4. Curar o dataset usando visualize_dataset.py, removendo imagens irrelevantes e corrigindo anotações.

@@ -1,0 +1,35 @@
+# dnit_config.yaml - Configuração Unificada de Treinamento
+
+# 1. Configurações Base
+task: detect
+mode: train
+model: ../models/yolo11x.pt
+data: /home/dyd/Vehicle-Identification-and-Detection-Algorithm/model-training/data/dnit_dataset/data.yaml
+project: Treinamentos_DNIT
+name: YOLO11x_8classes_dnit
+epochs: 300
+imgsz: 1280   # Leia o Alerta Crítico abaixo sobre a sua GPU!
+batch: 4     # Leia o Alerta Crítico abaixo sobre a sua GPU!
+
+# 2. Hiperparâmetros (Regularização)
+optimizer: AdamW
+lr0: 0.001
+weight_decay: 0.0005
+dropout: 0.3
+freeze: 10
+patience: 50
+label_smoothing: 0.1
+
+# 3. Data Augmentation
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+degrees: 5.0
+translate: 0.2
+scale: 0.6
+shear: 2.0
+perspective: 0.0001
+flipud: 0.0
+fliplr: 0.5
+mosaic: 1.0
+mixup: 0.15

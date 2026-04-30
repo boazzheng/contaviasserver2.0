@@ -155,7 +155,12 @@ def run_curator(images_dir, labels_dir):
     image_files = sorted([f for f in os.listdir(images_dir) if f.lower().endswith(('.jpg', '.png'))])
     if not image_files: print("Nenhuma imagem encontrada."); sys.exit(0)
 
-    cv2.namedWindow("Curador Profissional")
+    # =========================================================================
+    # ALTERAÇÃO AQUI: WINDOW_NORMAL permite que a janela seja redimensionada.
+    # O resizeWindow garante um tamanho inicial confortável.
+    # =========================================================================
+    cv2.namedWindow("Curador Profissional", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Curador Profissional", 1280, 720) 
     cv2.setMouseCallback("Curador Profissional", mouse_callback)
 
     print("\n=== Curador Profissional Iniciado ===")
@@ -263,5 +268,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# python .\dnit_training\visualize_dataset.py --images "C:\Users\BoazZheng\Downloads\Treinamento DNIT\images" --labels "C:\Users\BoazZheng\Downloads\Treinamento DNIT\labels"

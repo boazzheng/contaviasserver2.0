@@ -1,0 +1,454 @@
+{
+  "name": "Whatsapp - New purchase confirmation",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "=subject:Novo pedido is:unread"
+        },
+        "options": {}
+      },
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        112
+      ],
+      "id": "5593e91e-05a4-4461-90a7-0872a7bfdb11",
+      "alwaysOutputData": false,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nXTNKRzmpxFqSNgn",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        192,
+        112
+      ],
+      "id": "5d78304e-e5fb-488b-bd73-c08d5dca9210",
+      "name": "Get a message",
+      "webhookId": "c60bacd5-241e-41bd-a9ac-19f30015c02a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nXTNKRzmpxFqSNgn",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Passo 1: Pega os textos do e-mail\nconst text = $input.first().json.text || \"\";\nconst html = $input.first().json.html || $input.first().json.textAsHtml || \"\";\nconst body = text + \"\\n\" + html;\n\nif (!body) {\n    throw new Error('O corpo do e-mail veio vazio. Verifique o nó do Gmail.');\n}\n\n// Passo 2: Extrai o Número do Pedido e a Data\n// Pega o número solto após a hashtag\nconst pedidoMatch = body.match(/Pedido #(\\d+)/i);\nconst numeroPedido = pedidoMatch ? \"#\" + pedidoMatch[1] : \"\";\n\n// Busca uma data no formato (Mês Dia, Ano)\nconst dataMatch = body.match(/\\(([a-zçA-Z\\s]+\\d{1,2},\\s*\\d{4})\\)/i);\nconst dataCompra = dataMatch ? dataMatch[1].trim() : \"Data não encontrada\";\n\n// Passo 3: Extrai o Nome Completo\nconst nomeMatch = body.match(/pedido de (.*?):/i);\nconst nomeCompleto = nomeMatch ? nomeMatch[1].trim() : \"Cliente\";\n\n// Passo 4: Isola APENAS o Bloco de Cobrança usando o texto puro\nconst blocoCobrancaMatch = text.match(/Endereço de cobrança([\\s\\S]+?)(?:Parabéns|Processe)/i);\nif (!blocoCobrancaMatch) {\n    throw new Error('A seção \"Endereço de cobrança\" não foi encontrada.');\n}\n\nconst blocoCobranca = blocoCobrancaMatch[1];\n\n// Extrai o E-mail de forma bruta (procura qualquer coisa com @ dentro do bloco)\nconst emailMatch = blocoCobranca.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\\.[a-zA-Z0-9_-]+)/i);\nif (!emailMatch) throw new Error('Email não encontrado no bloco de cobrança.');\n\n// Extrai o Telefone (procura a tag tel: do wooCommerce)\nconst telefoneMatch = blocoCobranca.match(/tel:([0-9\\+\\-\\s\\(\\)]+)/i);\nif (!telefoneMatch) throw new Error('Telefone não encontrado no bloco de cobrança.');\n\n// Trata o Telefone (Adiciona DDI e DDD)\nlet telefoneLimpo = telefoneMatch[1].replace(/\\D/g, '');\nif (telefoneLimpo.length === 10 || telefoneLimpo.length === 11) {\n    telefoneLimpo = '55' + telefoneLimpo;\n} else if (telefoneLimpo.length === 8 || telefoneLimpo.length === 9) {\n    telefoneLimpo = '5563' + telefoneLimpo; // Fallback para DDD 63\n} else if (telefoneLimpo.length < 8) {\n    throw new Error(`Número inválido: ${telefoneLimpo}`);\n}\n\n// Passo 5: Lógica Inteligente para Empresa\n// Transforma o bloco de cobrança numa lista, removendo linhas vazias e o NOME DO CLIENTE\nconst linhasCobranca = blocoCobranca.split('\\n')\n    .map(l => l.trim())\n    .filter(l => l.length > 0 && l.toUpperCase() !== nomeCompleto.toUpperCase());\n\nlet empresa = \"Não informada\";\n\n// Se sobrou alguma linha, a primeira costuma ser a Empresa (antes da Rua)\nif (linhasCobranca.length > 0) {\n    const linha1 = linhasCobranca[0];\n    // Se a linha NÃO for um endereço e NÃO for um e-mail/telefone, é a empresa!\n    if (!linha1.match(/Rua|Av\\.|Avenida|Rodovia|Quadra|Lote|Qd|Lt|Travessa|Praça/i) && !linha1.includes('@')) {\n        empresa = linha1;\n    }\n}\n\n// Define o nome da Pasta Principal\nconst nomePastaPrincipal = (empresa !== \"Não informada\") ? empresa : nomeCompleto;\n\nreturn {\n  nomeCompleto: nomeCompleto,\n  empresa: empresa,\n  dataCompra: dataCompra,\n  emailCliente: emailMatch[1].trim(),\n  telefoneCliente: telefoneLimpo,\n  nomePastaPrincipal: nomePastaPrincipal.replace(/'/g, \"\"), // Limpa aspas que quebram o Drive\n  nomePasta: `Pedido ${numeroPedido} - ${dataCompra}`\n};"
+      },
+      "name": "Extrair Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        112
+      ],
+      "id": "d2692b56-55ca-4885-b3c2-c04c925a6dc7"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "={{ $json.empresa }}",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "=https://drive.google.com/drive/folders/10Gw9FrTnl6BSQ1C5hW4Xq-NQiU9ilfwd?usp=sharing",
+            "mode": "url"
+          },
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "name": "Procurar Pasta Empresa",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        672,
+        112
+      ],
+      "alwaysOutputData": true,
+      "id": "04d454ae-9c7c-4b7f-aeb9-e17e879468e3",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "AQdxUhVMBx1WTEnS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "IF Pasta Existe",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        896,
+        112
+      ],
+      "id": "108c7b1e-4a57-456a-a805-7d61db9b1b6a"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "pastaPaiId",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set ID Existente",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        0
+      ],
+      "id": "dbda9b5a-cfa7-48ff-aaca-83e5999758d6"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Extrair Dados').item.json.nomePastaPrincipal }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "=https://drive.google.com/drive/folders/10Gw9FrTnl6BSQ1C5hW4Xq-NQiU9ilfwd?usp=sharing",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "name": "Criar Pasta Empresa",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1104,
+        224
+      ],
+      "id": "8b7242e8-1e2a-465a-98b5-4762a46e62aa",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "AQdxUhVMBx1WTEnS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "pastaPaiId",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set ID Novo",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        224
+      ],
+      "id": "56522aa0-4b15-48bd-93a7-b80105e7cda8"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Extrair Dados').item.json.nomePasta }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "name": "Criar Pasta Pedido",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1552,
+        112
+      ],
+      "id": "292e041d-76d5-4484-9532-3c453f1f78fa",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "AQdxUhVMBx1WTEnS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "share",
+        "folderNoRootId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "permissionsUi": {
+          "permissionsValues": {
+            "role": "reader",
+            "type": "user",
+            "emailAddress": "={{ $('Extrair Dados').item.json.emailCliente }}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Compartilhar Pasta Pedido",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1776,
+        112
+      ],
+      "id": "5b2a67fb-1120-4b1b-9ae0-853cd28d5b04",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "AQdxUhVMBx1WTEnS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://evolution_api:8080/message/sendText/contavias",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "ContaViasSeguro2026"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $('Extrair Dados').item.json.telefoneCliente }}\",\n  \"options\": {\n    \"delay\": 1200,\n    \"presence\": \"composing\"\n  },\n  \"textMessage\": {\n    \"text\": \"Olá, {{ $('Extrair Dados').item.json.nomeCompleto }}! Tudo bem?\\n\\nO seu pagamento (Pedido do dia {{ $('Extrair Dados').item.json.dataCompra }}) foi confirmado com sucesso. ✅\\n\\nAqui está o link da sua pasta exclusiva no Google Drive para você fazer o upload dos vídeos:\\nhttps://drive.google.com/drive/folders/{{ $('Criar Pasta Pedido').item.json.id }}\\n\\nQualquer dúvida, é só chamar!\"\n  }\n}",
+        "options": {}
+      },
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1984,
+        112
+      ],
+      "id": "6d254adc-f545-4450-9d62-7bda3a863138"
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2208,
+        112
+      ],
+      "id": "b323778f-243b-4a3f-a8df-ca7a7ad21dbe",
+      "name": "Mark a message as read",
+      "webhookId": "6cb88433-f719-4353-b217-be8d851532de",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nXTNKRzmpxFqSNgn",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "Extrair Dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Dados": {
+      "main": [
+        [
+          {
+            "node": "Procurar Pasta Empresa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procurar Pasta Empresa": {
+      "main": [
+        [
+          {
+            "node": "IF Pasta Existe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Pasta Existe": {
+      "main": [
+        [
+          {
+            "node": "Set ID Existente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Criar Pasta Empresa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set ID Existente": {
+      "main": [
+        [
+          {
+            "node": "Criar Pasta Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Pasta Empresa": {
+      "main": [
+        [
+          {
+            "node": "Set ID Novo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set ID Novo": {
+      "main": [
+        [
+          {
+            "node": "Criar Pasta Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Pasta Pedido": {
+      "main": [
+        [
+          {
+            "node": "Compartilhar Pasta Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compartilhar Pasta Pedido": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Mark a message as read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "cbea734f-9043-44bb-8e9c-1132acb47829",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4165517fb43c5c6da35d275778799876df927905aa19cb0c0c16183ab2ddb643"
+  },
+  "id": "H1YNJds768SJgWMY",
+  "tags": []
+}
