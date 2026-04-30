@@ -20,16 +20,12 @@ HIT_MARGIN = 8 # Área de captura do mouse (em pixels) para agarrar uma borda
 # Rastreio da posição do mouse para alteração de classe via hover
 current_mouse_pos = (0, 0)
 
-# Mapeamento atualizado para a Taxonomia DNIT do CVS2.0
+# Mapeamento original (4 classes básicas)
 CLASSES = {
     0: ('Carro', (255, 0, 0)),
     1: ('Moto', (0, 255, 0)),
     2: ('Onibus', (0, 255, 255)),
-    3: ('2C', (0, 0, 255)),
-    4: ('2CB', (128, 0, 128)),
-    5: ('2S2', (255, 165, 0)),
-    6: ('3S3', (0, 128, 128)),
-    7: ('3C', (255, 192, 203))
+    3: ('Caminhao', (0, 0, 255))
 }
 
 def yolo_to_pixel(x_c, y_c, w, h, img_w, img_h):
@@ -173,8 +169,8 @@ def run_curator(images_dir, labels_dir):
     print("[ A ]                : Imagem ANTERIOR")
     print("[ X ]                : Mover imagem para a LIXEIRA")
     print("-------------------------------------")
-    print("[ 0 a 7 ] (Mouse NO Fundo) : Muda Classe do Pincel")
-    print("[ 0 a 7 ] (Mouse NA Caixa) : Altera a Classe da Caixa")
+    print("[ 0 a 3 ] (Mouse NO Fundo) : Muda Classe do Pincel")
+    print("[ 0 a 3 ] (Mouse NA Caixa) : Altera a Classe da Caixa")
     print("=====================================\n")
 
     i = 0
@@ -254,7 +250,7 @@ def run_curator(images_dir, labels_dir):
                 break 
                 
             # Lógica de Reclassificação e Seleção de Pincel
-            elif ord('0') <= key <= ord('9'):
+            elif ord('0') <= key <= ord('3'):
                 new_cls = key - ord('0')
                 if new_cls in CLASSES:
                     # Checa se o mouse está flutuando sobre uma caixa (HOVER)
