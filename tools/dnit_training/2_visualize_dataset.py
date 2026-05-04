@@ -4,6 +4,27 @@ import argparse
 import cv2
 import shutil
 import json
+import numpy as np
+
+# ==============================================================================
+# CONFIGURAÇÃO DE ROTEAMENTO RÁPIDO (CVS 2.0)
+# ==============================================================================
+# Top 12 Categorias alinhadas à anatomia da mão no teclado QWERTY.
+MAPA_CLASSIFICACAO_ROTEAMENTO = {
+    ord('y'): '2C',
+    ord('u'): '3C',
+    ord('i'): '3S3',
+    ord('o'): '2CB',
+    ord('h'): '4CD',
+    ord('j'): '3I3',
+    ord('k'): '1_2_1_3',
+    ord('l'): '2S3 (1_1_3)',
+    ord('n'): '2S2',
+    ord('m'): '1_2_3_3',
+    ord(','): '3D4 (1_2_2_2)',
+    ord('.'): 'Cabine'
+}
+# ==============================================================================
 
 # --- Variáveis de Estado Globais ---
 current_boxes = []
@@ -142,10 +163,10 @@ def run_curator(images_dir, labels_dir):
     trash_lbl_dir = os.path.join(base_dir, "Lixeira", "labels")
     os.makedirs(trash_img_dir, exist_ok=True); os.makedirs(trash_lbl_dir, exist_ok=True)
 
+    # Coleta apenas os arquivos de imagem soltos na raiz da pasta 'images'
     image_files = sorted([f for f in os.listdir(images_dir) if f.lower().endswith(('.jpg', '.png'))])
     if not image_files: sys.exit(0)
 
-    # --- Lógica de Retomada de Progresso ---
     saved_idx = load_progress(labels_dir)
     i = 0
     if saved_idx > 0 and saved_idx < len(image_files):
@@ -153,6 +174,45 @@ def run_curator(images_dir, labels_dir):
         resp = input("Deseja retomar de onde parou? (S/n): ").strip().lower()
         if resp != 'n':
             i = saved_idx
+
+    # --- TELA SEPARADA: TECLADO VISUAL (GRID 3x4) ---
+    legend_height = 350
+    legend_width = 800
+    legend_img = np.zeros((legend_height, legend_width, 3), dtype=np.uint8)
+    
+    cv2.putText(legend_img, "TECLADO DE ROTEAMENTO (GRID QWERTY)", (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.line(legend_img, (15, 50), (legend_width - 15, 50), (100, 100, 100), 1)
+    
+    grid_layout = [
+        ['y', 'u', 'i', 'o'],
+        ['h', 'j', 'k', 'l'],
+        ['n', 'm', ',', '.']
+    ]
+    
+    cell_w = 180
+    cell_h = 70
+    start_x = 20
+    start_y = 70
+    
+    for row_idx, row in enumerate(grid_layout):
+        for col_idx, key_char in enumerate(row):
+            key_code = ord(key_char)
+            cat_name = MAPA_CLASSIFICACAO_ROTEAMENTO.get(key_code, "N/A")
+            
+            x = start_x + col_idx * cell_w
+            y = start_y + row_idx * cell_h
+            
+            cv2.rectangle(legend_img, (x, y), (x + cell_w - 10, y + cell_h - 10), (40, 40, 40), -1)
+            cv2.rectangle(legend_img, (x, y), (x + cell_w - 10, y + cell_h - 10), (150, 150, 150), 1)
+            
+            display_char = key_char.upper()
+            cv2.putText(legend_img, f"[{display_char}]", (x + 10, y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.putText(legend_img, cat_name, (x + 10, y + 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+    cv2.putText(legend_img, "[ X ] -> Lixeira  |  [ D ] -> Prox  |  [ A ] -> Ant", (15, legend_height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
+
+    cv2.imshow("Categorias - CVS2.0", legend_img)
+    # ------------------------------------------------
 
     cv2.namedWindow("Curador CVS2.0", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Curador CVS2.0", 1280, 720) 
@@ -191,23 +251,28 @@ def run_curator(images_dir, labels_dir):
             cv2.putText(display_img, f"IMG: {i+1}/{len(image_files)} | {img_name}", (10, 25), 0, 0.6, (255,255,255), 1)
             
             cv2.imshow("Curador CVS2.0", display_img)
-            key = cv2.waitKey(20) & 0xFF
+            
+            raw_key = cv2.waitKey(20)
+            if raw_key == -1: continue
+            key = raw_key & 0xFF
+            
+            key_lower = ord(chr(key).lower()) if 0 <= key < 256 else key
 
             if key in [ord('q'), 27]:
                 save_labels(lbl_path, current_boxes)
-                save_progress(labels_dir, i) # Salva antes de sair
+                save_progress(labels_dir, i) 
                 sys.exit(0)
-            elif key in [ord('d'), 32]: # Próximo
+            elif key in [ord('d'), 32]:
                 save_labels(lbl_path, current_boxes)
                 i += 1
-                save_progress(labels_dir, i) # Atualiza progresso
+                save_progress(labels_dir, i) 
                 break
-            elif key == ord('a'): # Anterior
+            elif key == ord('a'): 
                 save_labels(lbl_path, current_boxes)
                 i = max(0, i - 1)
                 save_progress(labels_dir, i)
                 break
-            elif key in [ord('x'), ord('X')]: # Lixeira
+            elif key_lower == ord('x'): 
                 try: shutil.move(img_path, os.path.join(trash_img_dir, img_name))
                 except: pass
                 if os.path.exists(lbl_path): shutil.move(lbl_path, os.path.join(trash_lbl_dir, os.path.basename(lbl_path)))
@@ -219,8 +284,31 @@ def run_curator(images_dir, labels_dir):
                 idx, _ = get_hit_target(current_mouse_pos[0], current_mouse_pos[1])
                 if idx != -1: current_boxes[idx] = (nk, *current_boxes[idx][1:])
                 else: active_class = nk
+            elif key_lower in MAPA_CLASSIFICACAO_ROTEAMENTO:
+                cat_name = MAPA_CLASSIFICACAO_ROTEAMENTO[key_lower]
+                
+                # --- LÓGICA ATUALIZADA (FLAT LABELS & CATEGORIZED IMAGES) ---
+                # A pasta da categoria é criada DENTRO da própria pasta 'images'
+                cat_img_dir = os.path.join(images_dir, cat_name)
+                os.makedirs(cat_img_dir, exist_ok=True)
+                
+                new_img_path = os.path.join(cat_img_dir, img_name)
+                
+                # Move APENAS a imagem
+                try: 
+                    shutil.move(img_path, new_img_path)
+                except Exception as e: 
+                    print(f"Erro ao mover imagem para {cat_name}: {e}")
+                    pass
+                
+                # Salva o label com as alterações atuais no mesmo local (pasta 'labels' raiz)
+                save_labels(lbl_path, current_boxes)
+                
+                # Remove da fila de processamento visual
+                image_files.pop(i)
+                save_progress(labels_dir, i)
+                break
 
-    # Se terminar tudo, remove o arquivo de progresso
     if i >= len(image_files) and os.path.exists(get_progress_file(labels_dir)):
         os.remove(get_progress_file(labels_dir))
     cv2.destroyAllWindows()
