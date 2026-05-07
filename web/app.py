@@ -217,7 +217,9 @@ def get_staged_videos(db: Session = Depends(get_db)):
 
     import os
     lista_videos = []
-    base_frames_dir = os.path.join("web", "static", "frames")
+    # Pega a pasta física real onde este código está rodando e junta com static/frames
+    diretorio_atual = os.path.dirname(os.path.abspath(__file__))
+    base_frames_dir = os.path.join(diretorio_atual, "static", "frames")
 
     for v in videos:
         frame_urls = []
@@ -230,6 +232,9 @@ def get_staged_videos(db: Session = Depends(get_db)):
                 frames_jpg = sorted([f for f in arquivos if f.endswith(".jpg")])
                 for f in frames_jpg:
                     frame_urls.append(f"/static/frames/{safe_client}/{safe_project}/id_{v.id}/{f}")
+                    print(f"   ✅ Frame encontrado para vídeo {v.id}: {f} do cliente '{safe_client}' e projeto '{safe_project}'", flush=True)
+            else:
+                print(f"❌ Pasta não encontrada: {pasta_fisica_frames}", flush=True)
 
         lista_videos.append({
             "id": v.id,
@@ -407,6 +412,28 @@ class AssignTasksPayload(BaseModel):
     task_ids: List[int]
     user_id: int
 
+@app.patch("/videos/{video_id}/revert")
+def revert_video_to_staging(video_id: int, db: Session = Depends(get_db)):
+    """Puxa um vídeo da Alocação de volta para a Staging Area, limpando suas tarefas."""
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
+    
+    from models import MovementTask
+    
+    # 1. Deleta todas as tarefas (MovementTasks) atreladas às fatias deste vídeo
+    for sl in video.slices:
+        db.query(MovementTask).filter(MovementTask.slice_id == sl.id).delete()
+        
+    # 2. Deleta as fatias (VideoSlices) para que possam ser refeitas no Staging
+    db.query(VideoSlice).filter(VideoSlice.video_id == video_id).delete()
+    
+    # 3. Muda o status de volta para 'configured' (Aparecerá na Staging Area com a máscara mantida)
+    video.status = VideoStatus.configured
+    
+    db.commit()
+    return {"message": "Vídeo retornado para a Staging Area com sucesso!"}
+
 @app.patch("/tasks/assign_bulk")
 def assign_tasks_bulk(payload: AssignTasksPayload, db: Session = Depends(get_db)):
     from models import MovementTask
@@ -424,3 +451,5 @@ if __name__ == "__main__":
     # Roda o servidor na porta 8000
     print("Iniciando o servidor ContaVias 2.0...")
     uvicorn.run("web.app:app", host="0.0.0.0", port=8000, reload=True)
+
+    # uvicorn app:app --reload

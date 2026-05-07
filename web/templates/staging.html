@@ -92,7 +92,7 @@
 
                 <div class="flex justify-between items-center mb-3">
                     <select id="frameSelector" onchange="mudarFrameBase()"
-                        class="border p-2 rounded text-sm bg-white shadow-sm w-1/2">
+                        class="border p-2 rounded text-sm bg-white shadow-sm w-auto max-w-full">
                         <option value="">Carregando frames...</option>
                     </select>
                     <button onclick="limparCanvas()"
@@ -176,8 +176,12 @@
         const valoresInputs = {}; 
 
         function guardarValorInput(id, campo, valor) {
-            if (!valoresInputs[id]) valoresInputs[id] = { start: '', end: '' };
+            if (!valoresInputs[id]) valoresInputs[id] = { start: '', end: '', salvo: false };
             valoresInputs[id][campo] = valor;
+            
+            // UX: Se o usuário digitou, o status "salvo" é perdido. O botão volta a ficar azul!
+            valoresInputs[id].salvo = false;
+            resetarBotaoSalvar(id);
         }
 
         function toggleProjeto(safeName) {
@@ -257,10 +261,16 @@
                                     : '<span title="🛠️ Pronto para IA" class="cursor-help text-xl">🛠️</span>'; 
                                 
                                 // RECUPERA OS VALORES DA MEMÓRIA
-                                const mem = valoresInputs[video.id] || { start: '', end: '' };
+                                const mem = valoresInputs[video.id] || { start: '', end: '', salvo: false };
                                 const isTesouraAberta = tesourasAbertas.has(video.id);
                                 const boxEndClass = isTesouraAberta ? 'flex' : 'hidden';
                                 const btnTesouraClass = isTesouraAberta ? 'hidden' : 'flex';
+
+                                // NOVO: Define a cor do botão com base na memória
+                                const btnSaveClass = mem.salvo 
+                                    ? "h-full px-3 text-green-700 bg-green-100 rounded-r transition-colors text-xs font-bold flex items-center border-l border-green-300" 
+                                    : "h-full px-3 text-white bg-indigo-600 hover:bg-indigo-700 rounded-r transition-colors text-xs font-bold flex items-center border-l border-indigo-700 cursor-pointer";
+                                const btnSaveText = mem.salvo ? "✅ Salvo" : "Salvar";
 
                                 actionButtons = `
                                     <div class="inline-flex items-center bg-white border border-gray-300 rounded shadow-sm mr-2 h-7">
@@ -279,12 +289,12 @@
                                             <input type="time" id="end_${video.id}" value="${mem.end}" oninput="guardarValorInput(${video.id}, 'end', this.value)" class="text-xs border-none outline-none w-[65px] text-yellow-900 font-mono font-bold bg-transparent p-0 focus:ring-0">
                                         </div>
 
-                                        <button onclick="fatiarInline(${video.id})" id="btn_save_${video.id}" class="h-full px-3 text-white bg-indigo-600 hover:bg-indigo-700 rounded-r transition text-xs font-bold flex items-center border-l border-indigo-700">
-                                            Salvar
+                                        <button onclick="fatiarInline(${video.id})" id="btn_save_${video.id}" class="${btnSaveClass}">
+                                            ${btnSaveText}
                                         </button>
                                         
                                     </div>
-                                `; 
+                                `;
                             }
 
                             actionButtons += `<button onclick="removerVideo(${video.id})" title="Remover Vídeo" class="text-red-500 hover:text-red-700 hover:scale-110 transition-transform mx-1 text-lg align-middle">🗑️</button>`;
@@ -567,13 +577,31 @@
             }
         }
 
+        // NOVO: Função que restaura o botão para o estado original (Azul)
+        function resetarBotaoSalvar(id) {
+            const btn = document.getElementById(`btn_save_${id}`);
+            if (btn) {
+                btn.disabled = false;
+                btn.className = "h-full px-3 text-white bg-indigo-600 hover:bg-indigo-700 rounded-r transition-colors text-xs font-bold flex items-center border-l border-indigo-700 cursor-pointer";
+                btn.innerHTML = "Salvar";
+            }
+        }
+
         async function fatiarInline(id) {
             const startVal = document.getElementById(`start_${id}`).value;
             const boxEnd = document.getElementById(`box_end_${id}`);
             const isEndVisible = !boxEnd.classList.contains('hidden');
             const endVal = isEndVisible ? document.getElementById(`end_${id}`).value : "";
+            const btn = document.getElementById(`btn_save_${id}`);
 
             if (!startVal) return alert("⚠️ Preencha a hora de INÍCIO antes de salvar!");
+
+            // 1. ESTADO: CARREGANDO (Botão Cinza e Desabilitado)
+            if (btn) {
+                btn.disabled = true;
+                btn.className = "h-full px-3 text-white bg-gray-400 rounded-r transition-colors text-xs font-bold flex items-center border-l border-gray-500 cursor-not-allowed";
+                btn.innerHTML = "⏳...";
+            }
 
             let startRel = "00:00";
             let endRel = "01:00";
@@ -588,18 +616,30 @@
                 endRel = `${String(hDiff).padStart(2, '0')}:${String(mDiff).padStart(2, '0')}`;
             }
 
-            const response = await fetch(`/videos/${id}/slices/auto`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base_time: startVal, start_time: startRel, end_time: endRel })
-            });
+            try {
+                const response = await fetch(`/videos/${id}/slices/auto`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_time: startVal, start_time: startRel, end_time: endRel })
+                });
 
-            if (response.ok) {
-                // NOVO: Terminou de editar, libera o sistema para voltar a atualizar!
-                fatiasEmEdicao.delete(id);
-                carregarFila();
-            } else {
-                alert("Erro ao processar fatias.");
+                if (response.ok) {
+                    // 2. ESTADO: SALVO (Botão Verde)
+                    fatiasEmEdicao.delete(id);
+                    if (!valoresInputs[id]) valoresInputs[id] = { start: startVal, end: endVal };
+                    valoresInputs[id].salvo = true; // Grava na memória para o refresh não estragar
+                    
+                    if (btn) {
+                        btn.className = "h-full px-3 text-green-700 bg-green-100 rounded-r transition-colors text-xs font-bold flex items-center border-l border-green-300";
+                        btn.innerHTML = "✅ Salvo";
+                    }
+                } else {
+                    if (btn) resetarBotaoSalvar(id);
+                    alert("Erro ao processar fatias no servidor.");
+                }
+            } catch (error) {
+                if (btn) resetarBotaoSalvar(id);
+                alert("Falha de conexão com o servidor.");
             }
         }
 

@@ -14,7 +14,7 @@ from googleapiclient.http import MediaIoBaseDownload
 # CONFIGURAÇÕES DE PASTAS E API
 # ==========================================
 # 🔴 COLOQUE O ID DA SUA PASTA RAIZ DO CONTAVIAS AQUI
-ROOT_FOLDER_ID = "19bg2e9q-H_76TZbuiL42MLIENoW5em4T" 
+ROOT_FOLDER_ID = "1wXyLnOhUFnVMddZTniLPlkMM2QrbS-xM" 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")

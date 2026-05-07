@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ContaVias - Alocação de Trabalho</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-100 font-sans leading-normal tracking-normal">
 
     <nav class="bg-indigo-800 p-4 shadow-lg">
@@ -13,20 +15,24 @@
             <div class="text-white font-bold text-xl">🚦 ContaVias Admin 2.0</div>
             <div class="flex space-x-4">
                 <a href="/admin/staging" class="text-indigo-200 hover:text-white transition">Fila de Staging</a>
-                <a href="/admin/allocation" class="text-white font-bold border-b-2 border-white pb-1">Alocação (Freelas)</a>
+                <a href="/admin/allocation" class="text-white font-bold border-b-2 border-white pb-1">Alocação
+                    (Freelas)</a>
             </div>
         </div>
     </nav>
 
     <div class="container mx-auto mt-8 p-4 flex flex-col md:flex-row gap-6">
-        
+
         <div class="w-full md:w-1/3 flex flex-col gap-6">
             <div class="bg-white shadow-md rounded-lg p-5 border-t-4 border-indigo-500">
                 <h2 class="text-lg font-bold text-gray-800 mb-4">👥 Adicionar Freelancer</h2>
                 <div class="space-y-3">
-                    <input type="text" id="freelaName" placeholder="Nome Completo" class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                    <input type="email" id="freelaEmail" placeholder="E-mail" class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                    <button onclick="cadastrarFreela()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">
+                    <input type="text" id="freelaName" placeholder="Nome Completo"
+                        class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <input type="email" id="freelaEmail" placeholder="E-mail"
+                        class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <button onclick="cadastrarFreela()"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">
                         + Cadastrar
                     </button>
                 </div>
@@ -44,9 +50,11 @@
             <div class="bg-white shadow-md rounded-lg p-5">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold text-gray-800">🎯 Atribuir Fatias de Vídeo</h2>
-                    <span class="text-xs bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded border border-yellow-200">Agrupado por Projeto</span>
+                    <span
+                        class="text-xs bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded border border-yellow-200">Agrupado
+                        por Projeto</span>
                 </div>
-                
+
                 <div id="containerVideos" class="space-y-4">
                     <p class="text-center py-10 text-gray-500">Carregando matriz de alocação...</p>
                 </div>
@@ -56,14 +64,14 @@
 
     <script>
         let freelancersGlobais = [];
-        const projetosColapsados = new Set(); 
-        const projetosJaVistos = new Set();   
+        const projetosColapsados = new Set();
+        const projetosJaVistos = new Set();
 
         // ==========================================
         // MEMÓRIA BLINDADA (UI STATE)
         // ==========================================
-        const tarefasSelecionadas = new Set(); 
-        const freelasSelecionados = {};        
+        const tarefasSelecionadas = new Set();
+        const freelasSelecionados = {};
         const togglesSelecionados = new Set(); // NOVO: Memória para o botão "Selecionar Linha"
 
         function formatarTempo(segundos) {
@@ -124,7 +132,7 @@
             const projetos = {};
             videos.forEach(video => {
                 const pName = video.project_name;
-                if(!projetos[pName]) projetos[pName] = [];
+                if (!projetos[pName]) projetos[pName] = [];
                 video.slices.forEach(slice => {
                     projetos[pName].push({ ...slice, filename: video.filename, videoId: video.id });
                 });
@@ -134,14 +142,14 @@
             for (const [pName, fatias] of Object.entries(projetos)) {
                 fatias.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
                 const safeId = pName.replace(/[^a-zA-Z0-9]/g, '_');
-                
+
                 if (!projetosJaVistos.has(safeId)) { projetosColapsados.add(safeId); projetosJaVistos.add(safeId); }
                 const isColapsado = projetosColapsados.has(safeId);
                 const displayClass = isColapsado ? 'hidden' : '';
                 const icone = isColapsado ? '▶' : '▼';
 
                 let slicesHtml = '<div class="divide-y divide-gray-200">';
-                
+
                 fatias.forEach(slice => {
                     const tasksPorOrigem = {};
                     slice.tasks.forEach(t => {
@@ -151,16 +159,16 @@
                     });
 
                     let tasksHtml = '<div class="flex flex-col gap-1.5 mt-2 w-full">';
-                    
+
                     for (const [origem, originTasks] of Object.entries(tasksPorOrigem)) {
                         tasksHtml += `<div class="flex flex-row items-stretch justify-between w-full border border-gray-200 rounded bg-gray-50 overflow-hidden shadow-sm">`;
-                        
+
                         tasksHtml += `<div class="flex flex-wrap p-1 gap-1.5 flex-grow">`;
-                        
+
                         originTasks.forEach(t => {
                             const isAtribuido = t.status !== 'pending';
                             const corFundo = isAtribuido ? 'bg-indigo-100 border-indigo-300 text-indigo-900' : 'bg-white border-gray-300 text-gray-600 hover:bg-indigo-50 hover:border-indigo-300';
-                            
+
                             // LÓGICA DO NOME: Primeiro Nome + Inicial do Último (ex: João S.)
                             let freelaDisplay = "-";
                             if (t.freelancer_name) {
@@ -172,10 +180,10 @@
                                 }
                             }
 
-                            const iconeAtribuido = isAtribuido 
-                                ? `<span class="text-[9px] font-normal truncate w-full text-center mt-0.5 opacity-80" title="${t.freelancer_name}">${freelaDisplay}</span>` 
+                            const iconeAtribuido = isAtribuido
+                                ? `<span class="text-[9px] font-normal truncate w-full text-center mt-0.5 opacity-80" title="${t.freelancer_name}">${freelaDisplay}</span>`
                                 : `<span class="text-[9px] font-normal w-full text-center mt-0.5 text-transparent select-none block h-3">-</span>`;
-                            
+
                             const checkedAttr = tarefasSelecionadas.has(t.id) ? 'checked' : '';
 
                             // REDUZIDO: w-[72px] (mais estreito), p-0.5 (menos margem interna)
@@ -189,9 +197,9 @@
                                 </label>
                             `;
                         });
-                        tasksHtml += `</div>`; 
+                        tasksHtml += `</div>`;
 
-                        const safeOrigem = origem.replace(/'/g, "\\'"); 
+                        const safeOrigem = origem.replace(/'/g, "\\'");
                         const toggleId = `toggle_${slice.id}_${safeOrigem}`;
                         const toggleChecked = togglesSelecionados.has(toggleId) ? 'checked' : '';
 
@@ -203,7 +211,7 @@
                                 </label>
                             </div>
                         `;
-                        tasksHtml += `</div>`; 
+                        tasksHtml += `</div>`;
                     }
                     tasksHtml += '</div>';
 
@@ -220,21 +228,22 @@
 
                     slicesHtml += `
                         <div class="p-3 hover:bg-white transition flex flex-col gap-2">
-                            <div class="flex flex-col lg:flex-row lg:items-center justify-between border-b border-gray-100 pb-2">
-                                <div class="flex items-center gap-2 mb-1 lg:mb-0 flex-wrap min-w-0">
-                                    <span class="text-sm font-bold text-gray-800 bg-yellow-100 px-2 py-0.5 rounded border border-yellow-300 shrink-0 shadow-sm" title="Hora Nominal">
+                            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border-b border-gray-100 pb-3 gap-3">
+                                
+                                <div class="flex items-center gap-2 flex-wrap min-w-0">
+                                    <span class="text-sm font-bold text-gray-800 bg-yellow-100 px-2 py-0.5 rounded border border-yellow-300 shadow-sm shrink-0" title="Hora Nominal">
                                         🕒 ${textoAmarelo}
                                     </span>
-                                    <span class="text-[10px] text-gray-600 font-mono bg-white px-1.5 py-0.5 rounded border shrink-0 shadow-sm" title="Tempo de corte no arquivo">
-                                        ✂️ ${tempoCorte}
-                                    </span>
-                                    <span class="text-xs text-gray-400 font-mono truncate max-w-[200px] lg:max-w-[400px]" title="Arquivo Original">
+                                    <span class="text-xs text-gray-500 font-mono truncate max-w-[150px] md:max-w-[250px] lg:max-w-[400px]" title="Arquivo Original">
                                         📁 ${slice.filename}
                                     </span>
+                                    <button onclick="reverterVideo(${slice.videoId})" class="bg-red-50 hover:bg-red-500 text-red-600 hover:text-white border border-red-200 hover:border-red-500 px-2 py-0.5 rounded text-[10px] font-bold transition-colors shadow-sm shrink-0 flex items-center" title="Devolver Vídeo para Staging">
+                                        ↩️ Reverter
+                                    </button>
                                 </div>
                                 
-                                <div class="flex items-center gap-1 shrink-0 bg-gray-50 p-1 rounded border shadow-sm self-start lg:self-auto">
-                                    <select id="select_freela_${slice.id}" onchange="freelasSelecionados[${slice.id}] = this.value" class="border-none bg-transparent text-xs p-1 outline-none w-32 cursor-pointer font-semibold text-gray-700 focus:ring-0">
+                                <div class="flex items-center gap-2 shrink-0 bg-gray-50 p-1.5 rounded border shadow-sm w-full lg:w-auto justify-end">
+                                    <select id="select_freela_${slice.id}" onchange="freelasSelecionados[${slice.id}] = this.value" class="border-none bg-transparent text-xs p-1 outline-none w-36 cursor-pointer font-semibold text-gray-700 focus:ring-0">
                                         <option value="">👤 Selecionar Freela...</option>
                                         ${fOptions}
                                     </select>
@@ -242,6 +251,7 @@
                                         Atribuir Selecionados
                                     </button>
                                 </div>
+                                
                             </div>
                             
                             ${tasksHtml}
@@ -249,7 +259,7 @@
                     `;
                 });
 
-                slicesHtml += '</div>'; 
+                slicesHtml += '</div>';
 
                 html += `
                     <div class="mb-4 bg-white border border-gray-300 rounded-lg shadow-sm">
@@ -280,9 +290,9 @@
         async function cadastrarFreela() {
             const name = document.getElementById('freelaName').value;
             const email = document.getElementById('freelaEmail').value;
-            if(!name || !email) return alert("Preencha nome e e-mail.");
+            if (!name || !email) return alert("Preencha nome e e-mail.");
             const response = await fetch('/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, email: email, role: "freelancer" }) });
-            if (response.ok) { document.getElementById('freelaName').value = ''; document.getElementById('freelaEmail').value = ''; carregarDados(); } 
+            if (response.ok) { document.getElementById('freelaName').value = ''; document.getElementById('freelaEmail').value = ''; carregarDados(); }
             else { const err = await response.json(); alert(err.detail || "Erro ao cadastrar."); }
         }
 
@@ -296,25 +306,38 @@
 
             const taskIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
-            const response = await fetch('/tasks/assign_bulk', { 
-                method: 'PATCH', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ task_ids: taskIds, user_id: parseInt(userId) }) 
+            const response = await fetch('/tasks/assign_bulk', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_ids: taskIds, user_id: parseInt(userId) })
             });
 
-            if (response.ok) { 
+            if (response.ok) {
                 // Limpeza de memórias para aquela fatia
                 taskIds.forEach(id => tarefasSelecionadas.delete(id));
                 togglesSelecionados.forEach(tid => {
                     if (tid.startsWith(`toggle_${sliceId}_`)) togglesSelecionados.delete(tid);
                 });
-                freelasSelecionados[sliceId] = ""; 
-                
-                carregarDados(); 
+                freelasSelecionados[sliceId] = "";
+
+                carregarDados();
             } else { alert("Erro ao atribuir tarefas."); }
+        }
+
+        async function reverterVideo(videoId) {
+            if (!confirm("⚠️ Tem certeza que deseja devolver este vídeo para o Staging? Todas as tarefas e fatias atuais serão apagadas e os freelancers perderão o acesso.")) return;
+
+            const response = await fetch(`/videos/${videoId}/revert`, { method: 'PATCH' });
+
+            if (response.ok) {
+                carregarDados(); // Recarrega a tela de alocação (o vídeo vai sumir daqui)
+            } else {
+                alert("Erro ao reverter o vídeo.");
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => { carregarDados(); setInterval(carregarDados, 10000); });
     </script>
 </body>
+
 </html>
