@@ -3,6 +3,8 @@ import sys
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
+import re
+from typing import Optional # Adicione isso no topo do arquivo se não tiver
 
 from fastapi import FastAPI, Depends, HTTPException, Request # <-- Adicione o Request aqui
 from fastapi.staticfiles import StaticFiles
@@ -285,7 +287,13 @@ def create_staged_video(video_in: schemas.VideoCreate, db: Session = Depends(get
         Video.project_id == projeto.id
     ).first()
     if video_existente:
-        raise HTTPException(status_code=409, detail="Vídeo já existe neste projeto")
+        # Em vez de apenas raise HTTPException(409), retornamos o vídeo com o status 409
+        # Isso permite que o robô receba o ID do vídeo
+        from fastapi.responses import JSONResponse
+        from fastapi.encoders import jsonable_encoder
+        
+        conteudo = jsonable_encoder(video_existente)
+        return JSONResponse(status_code=409, content=conteudo)
 
     # 4. Salva o Vídeo amarrado ao Projeto correto!
     novo_video = Video(
@@ -446,6 +454,247 @@ def assign_tasks_bulk(payload: AssignTasksPayload, db: Session = Depends(get_db)
     db.commit()
     return {"message": f"{len(tasks)} tarefas atribuídas com sucesso!"}
 
+# ==========================================
+# ROTAS DO ÉPICO 4: WORKSPACE DO FREELANCER
+# ==========================================
+
+@app.get("/freelancer/workspace", response_class=HTMLResponse)
+def workspace_page(request: Request):
+    """Renderiza a casca do Dashboard do Freelancer."""
+    return templates.TemplateResponse(request=request, name="workspace.html")
+
+@app.get("/api/freelancer/workspace/{user_id}")
+def get_workspace_data(user_id: int, db: Session = Depends(get_db)):
+    """Busca e agrupa as tarefas de um freelancer específico."""
+    from models import MovementTask, User, SliceStatus
+    
+    freela = db.query(User).filter(User.id == user_id).first()
+    if not freela:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # Pega todas as tarefas que são deste freela e ainda não foram concluídas
+    tarefas = db.query(MovementTask).filter(
+        MovementTask.assigned_to == user_id,
+        MovementTask.status != SliceStatus.completed
+    ).all()
+
+    # Agrupa as tarefas por Vídeo > Fatia
+    agrupamento = {}
+    total_movimentos = 0
+
+    for t in tarefas:
+        fatia = t.video_slice
+        video = fatia.video
+        v_id = video.id
+        
+        if v_id not in agrupamento:
+            agrupamento[v_id] = {
+                "video_id": v_id,
+                # Oculta o nome real e envia apenas o ID numérico do projeto
+                "project_name": f"Projeto #{video.project.id}" if video.project else "Avulso",
+                "filename": video.original_filename,
+                "slices": {}
+            }
+            
+        s_id = fatia.id
+        if s_id not in agrupamento[v_id]["slices"]:
+            agrupamento[v_id]["slices"][s_id] = {
+                "slice_id": s_id,
+                "name": fatia.name,
+                "start_time": fatia.start_time,
+                "end_time": fatia.end_time,
+                "tasks": []
+            }
+            
+        agrupamento[v_id]["slices"][s_id]["tasks"].append({
+            "task_id": t.id,
+            "movement_name": t.movement.name,
+            "status": t.status
+        })
+        total_movimentos += 1
+
+    # Formata a resposta para facilitar no Javascript do Frontend
+    videos_list = []
+    for v_data in agrupamento.values():
+        v_data["slices"] = list(v_data["slices"].values()) # Converte dict de fatias para lista
+        videos_list.append(v_data)
+
+    return {
+        "freelancer_name": freela.name,
+        "total_tasks": total_movimentos,
+        "total_videos": len(videos_list),
+        "videos": videos_list
+    }
+
+# Rota para renderizar a tela do Reprodutor
+@app.get("/freelancer/workspace/counter/{slice_id}", response_class=HTMLResponse)
+def counter_page(request: Request, slice_id: int):
+    return templates.TemplateResponse(request=request, name="counter.html", context={"slice_id": slice_id})
+
+# 1. Definição do formato de dados que vamos receber
+class RecordItem(BaseModel):
+    vehicle_class: str
+    video_time: float
+
+class CompleteTaskRequest(BaseModel):
+    records: List[RecordItem]
+
+# 2. A rota exata que o frontend está a chamar
+@app.post("/api/tasks/{task_id}/complete")
+def complete_task(task_id: int, payload: CompleteTaskRequest, db: Session = Depends(get_db)):
+    from models import MovementTask, SliceStatus, CountRecord
+    
+    # Encontra a tarefa
+    task = db.query(MovementTask).filter(MovementTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+        
+    # Muda o status para concluído
+    task.status = SliceStatus.completed
+
+    # Limpa rascunhos antigos dessa tarefa
+    db.query(CountRecord).filter(CountRecord.task_id == task_id).delete()
+
+    # Grava os novos registros oficiais
+    novos_registros = []
+    for r in payload.records:
+        novo = CountRecord(
+            task_id=task_id,
+            vehicle_class=r.vehicle_class,
+            video_time=r.video_time
+        )
+        novos_registros.append(novo)
+    
+    db.add_all(novos_registros)
+    db.commit()
+    
+    return {"message": "Tarefa concluída e salva com sucesso!"}
+
+@app.get("/api/workspace/slice/{slice_id}/data")
+def get_slice_counter_data(slice_id: int, user_id: int, review: str = "false", task_id: Optional[int] = None, db: Session = Depends(get_db)):
+    from models import VideoSlice, MovementTask, CountRecord, SliceStatus
+    import re
+    
+    fatia = db.query(VideoSlice).filter(VideoSlice.id == slice_id).first()
+    if not fatia:
+        raise HTTPException(status_code=404, detail="Fatia não encontrada")
+        
+    if review.lower() == "true":
+        query = db.query(MovementTask).filter(
+            MovementTask.slice_id == slice_id,
+            MovementTask.assigned_to == user_id
+        )
+        if task_id:
+            query = query.filter(MovementTask.id == task_id)
+            
+        tarefas = query.all()
+    else:
+        tarefas = db.query(MovementTask).filter(
+            MovementTask.slice_id == slice_id,
+            MovementTask.assigned_to == user_id,
+            MovementTask.status != SliceStatus.completed
+        ).all()
+        
+    tarefa_ids = [t.id for t in tarefas]
+    registros_db = db.query(CountRecord).filter(CountRecord.task_id.in_(tarefa_ids)).all()
+    
+    registros_formatados = [{
+        "task_id": r.task_id,
+        "vehicle_class": r.vehicle_class,
+        "video_time": r.video_time
+    } for r in registros_db]
+
+    def limpar_nome(nome):
+        return re.sub(r'[\\/*?:"<>|]', "", nome).strip()
+        
+    cliente = fatia.video.project.client.name if fatia.video.project and fatia.video.project.client else "Cliente Padrão"
+    projeto = fatia.video.project.name if fatia.video.project else "Projeto Padrão"
+    url_video = f"/static/videos/{limpar_nome(cliente)}/{limpar_nome(projeto)}/{fatia.video.original_filename}"
+    
+    return {
+        "video_url": url_video,
+        "slice_name": fatia.name,
+        "project_name": f"Projeto #{fatia.video.project_id}",
+        "tasks": [{"id": t.id, "movement_name": t.movement.name} for t in tarefas],
+        "existing_records": registros_formatados
+    }
+
+# Rota para salvar a bateria de contagens (timestamps)
+from pydantic import BaseModel
+from typing import List
+
+class CountRecordSchema(BaseModel):
+    task_id: int
+    vehicle_class: str
+    video_time: float
+
+class SaveCountsPayload(BaseModel):
+    records: List[CountRecordSchema]
+
+@app.post("/api/workspace/slice/{slice_id}/save")
+def save_counts(slice_id: int, payload: SaveCountsPayload, db: Session = Depends(get_db)):
+    from models import CountRecord, MovementTask, SliceStatus
+    
+    # 1. Insere todos os cliques no banco
+    for record in payload.records:
+        novo_registro = CountRecord(
+            task_id=record.task_id,
+            vehicle_class=record.vehicle_class,
+            video_time=record.video_time
+        )
+        db.add(novo_registro)
+        
+    # 2. Marca as tarefas como concluídas
+    task_ids = set([r.task_id for r in payload.records])
+    for tid in task_ids:
+        task = db.query(MovementTask).filter(MovementTask.id == tid).first()
+        if task:
+            task.status = SliceStatus.completed
+            
+    db.commit()
+    return {"message": "Contagens salvas com sucesso!"}
+
+@app.get("/api/workspace/{user_id}/history")
+def get_user_history(user_id: int, db: Session = Depends(get_db)):
+    try:
+        # Adicionamos o VideoSlice aqui nos imports
+        from models import MovementTask, SliceStatus, CountRecord, VideoSlice
+        from sqlalchemy import func
+
+        tarefas_concluidas = db.query(MovementTask).filter(
+            MovementTask.assigned_to == user_id,
+            MovementTask.status == SliceStatus.completed
+        ).all()
+
+        resultado = []
+        for t in tarefas_concluidas:
+            total_veiculos = db.query(func.count(CountRecord.id)).filter(CountRecord.task_id == t.id).scalar() or 0
+            
+            # 🔴 SOLUÇÃO BULLETPROOF: Buscamos a fatia diretamente pelo ID
+            fatia = db.query(VideoSlice).filter(VideoSlice.id == t.slice_id).first()
+            video = fatia.video if fatia else None
+            projeto = video.project if video else None
+            video_nome = video.original_filename if video else "Vídeo Desconhecido" # 👈 NOVO
+            
+            resultado.append({
+                "task_id": t.id,
+                "video_filename": video_nome,
+                "project": f"Projeto #{projeto.id}" if projeto else "Avulso",
+                "movement": t.movement.name if hasattr(t, 'movement') and t.movement else "Movimento",
+                "slice_name": fatia.name if fatia else "Desconhecida",
+                "total": total_veiculos,
+                "slice_id": t.slice_id
+            })
+        
+        return resultado[::-1]
+    
+    except Exception as e:
+        print(f"🚨 ERRO NA ROTA DE HISTÓRICO: {str(e)}")
+        # Imprime o erro completo no terminal para facilitar debugging futuro
+        import traceback
+        traceback.print_exc()
+        return []
+       
 if __name__ == "__main__":
     import uvicorn
     # Roda o servidor na porta 8000

@@ -13,14 +13,15 @@ from googleapiclient.http import MediaIoBaseDownload
 # ==========================================
 # CONFIGURAÇÕES DE PASTAS E API
 # ==========================================
-# 🔴 COLOQUE O ID DA SUA PASTA RAIZ DO CONTAVIAS AQUI
 ROOT_FOLDER_ID = "1wXyLnOhUFnVMddZTniLPlkMM2QrbS-xM" 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
+
+# 🔴 NOVA ESTRUTURA: Apontando os vídeos para dentro da pasta web/static/
+VIDEOS_DIR = os.path.join(BASE_DIR, "web", "static", "videos")
 FRAMES_DIR = os.path.join(BASE_DIR, "web", "static", "frames")
 
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(VIDEOS_DIR, exist_ok=True)
 os.makedirs(FRAMES_DIR, exist_ok=True)
 
 API_URL = "http://localhost:8000/videos/staged"
@@ -43,15 +44,10 @@ def authenticate_gdrive():
     return build('drive', 'v3', credentials=creds)
 
 def check_ancestry_and_get_names(service, parent_id, root_id):
-    """
-    Sobe a árvore de pastas do arquivo. 
-    Retorna True se estiver dentro do ROOT_FOLDER_ID e devolve os nomes das pastas.
-    """
     current_id = parent_id
     path_names = []
     depth = 0
     
-    # Limita a 10 níveis de profundidade para não rodar infinitamente
     while current_id and depth < 10:
         if current_id == root_id:
             return True, path_names
@@ -68,28 +64,23 @@ def check_ancestry_and_get_names(service, parent_id, root_id):
     return False, []
 
 def limpar_nome_pasta(nome):
-    """Remove caracteres que o Windows/Linux não aceitam em nomes de pastas."""
     return re.sub(r'[\\/*?:"<>|]', "", nome).strip()
 
 def download_video(service, file_id, filename, cliente, projeto):
-    # 1. Cria os nomes seguros para as pastas
     pasta_cliente = limpar_nome_pasta(cliente)
     pasta_projeto = limpar_nome_pasta(projeto)
     
-    # 2. Monta o caminho completo: downloads / Nome do Cliente / Nome do Projeto
-    caminho_destino = os.path.join(DOWNLOAD_DIR, pasta_cliente, pasta_projeto)
-    
-    # 3. Cria as pastas fisicamente no disco (se não existirem)
+    # 🔴 Salvando na nova estrutura: web/static/videos/Cliente/Projeto/
+    caminho_destino = os.path.join(VIDEOS_DIR, pasta_cliente, pasta_projeto)
     os.makedirs(caminho_destino, exist_ok=True)
     
-    # 4. Junta o caminho das pastas com o nome do vídeo
     filepath = os.path.join(caminho_destino, filename)
     
     if os.path.exists(filepath):
         print(f"⏩ Arquivo {filename} já existe em {caminho_destino}.")
         return filepath
 
-    print(f"📥 Baixando {filename} para a pasta: {pasta_cliente}/{pasta_projeto}...")
+    print(f"📥 Baixando {filename} para a pasta: static/videos/{pasta_cliente}/{pasta_projeto}...")
     request = service.files().get_media(fileId=file_id)
     fh = io.FileIO(filepath, 'wb')
     downloader = MediaIoBaseDownload(fh, request)
@@ -100,7 +91,19 @@ def download_video(service, file_id, filename, cliente, projeto):
     return filepath
 
 def extract_frames(video_path, video_id_db, cliente, projeto):
-    print(f"📸 Extraindo frames de {video_path} de forma organizada...")
+    pasta_cliente = limpar_nome_pasta(cliente)
+    pasta_projeto = limpar_nome_pasta(projeto)
+    
+    caminho_frames_video = os.path.join(
+        FRAMES_DIR, pasta_cliente, pasta_projeto, f"id_{video_id_db}"
+    )
+    
+    # Se a pasta já existir e tiver arquivos (ex: hour_0.jpg), pulamos a extração
+    if os.path.exists(caminho_frames_video) and len(os.listdir(caminho_frames_video)) > 0:
+        print(f"⏩ Frames já existem em: {caminho_frames_video}. Pulando extração.")
+        return []
+
+    print(f"📸 Extraindo frames de {video_path}...")
     cap = cv2.VideoCapture(video_path)
     
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -112,30 +115,24 @@ def extract_frames(video_path, video_id_db, cliente, projeto):
     total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
     duracao_segundos = total_frames / fps
 
-    # 1. Cria os nomes seguros para as pastas e monta o caminho completo
     pasta_cliente = limpar_nome_pasta(cliente)
     pasta_projeto = limpar_nome_pasta(projeto)
     
-    # Nova estrutura: web/static/frames / Cliente / Projeto / ID_do_Video /
     caminho_frames_video = os.path.join(
         FRAMES_DIR, pasta_cliente, pasta_projeto, f"id_{video_id_db}"
     )
     
-    # 2. Cria as pastas fisicamente no disco
     os.makedirs(caminho_frames_video, exist_ok=True)
     print(f"   📂 Pasta de frames criada: {caminho_frames_video}")
     
     frame_paths = []
-    # 3. Loop de extração de 1 em 1 hora
     for i in range(0, int(duracao_segundos) + 1, 3600):
         cap.set(cv2.CAP_PROP_POS_MSEC, i * 1000)
         success, image = cap.read()
         
         if success:
-            # Nome simplificado, pois a pasta já é única (ex: hour_0.jpg)
             frame_filename = f"hour_{i//3600}.jpg"
             save_path = os.path.join(caminho_frames_video, frame_filename)
-            
             cv2.imwrite(save_path, image)
             frame_paths.append(save_path)
             print(f"   ✅ Frame salvo: {frame_filename}")
@@ -146,7 +143,6 @@ def extract_frames(video_path, video_id_db, cliente, projeto):
 def scan_and_process():
     service = authenticate_gdrive()
     
-    # Mudamos de createdTime para modifiedTime para pegar arquivos renomeados!
     results = service.files().list(
         q="mimeType contains 'video/mp4' and trashed = false",
         fields="files(id, name, parents)",
@@ -162,14 +158,12 @@ def scan_and_process():
         if not parents:
             continue
             
-        # 1. O Escudo
         belongs_to_root, folder_path = check_ancestry_and_get_names(service, parents[0], ROOT_FOLDER_ID)
         
         if not belongs_to_root:
             print(f"🚫 Bloqueado pelo Escudo: '{file['name']}' (Fora da Raiz do ContaVias)")
             continue 
             
-        # 2. Inteligência de Pastas
         cliente = folder_path[0] if len(folder_path) > 0 else "Cliente Padrão"
         projeto = folder_path[1] if len(folder_path) > 1 else "Projeto Padrão"
         
@@ -183,21 +177,29 @@ def scan_and_process():
         
         try:
             res = requests.post(API_URL, json=payload)
+            video_id = None
             
             if res.status_code == 201:
                 video_id = res.json()['id']
-                print(f"✅ NOVO: '{file['name']}' (De: {cliente} > {projeto}) salvo no banco!")
-                
+                print(f"✅ NOVO: '{file['name']}' salvo no banco.")
+            elif res.status_code == 409:
+                # Se já existe, pegamos o ID que vem na resposta da API
+                video_id = res.json().get('id')
+                print(f"ℹ️ EXISTENTE: '{file['name']}' já está no banco. Verificando integridade local...")
+
+            if video_id:
+                # Validação de Download: baixa se não existir
                 local_path = download_video(service, file['id'], file['name'], cliente, projeto)
+                
+                # Validação de Frames: extrai se a pasta do vídeo estiver vazia ou não existir
+                # (A função extract_frames já cria a pasta se não existir)
                 extract_frames(local_path, video_id, cliente, projeto)
                 
+                # Avisa o backend que está tudo pronto (Download + Frames)
                 requests.patch(f"http://localhost:8000/videos/{video_id}/ready")
-                print(f"🏁 Vídeo {video_id} liberado na interface web!")
-            elif res.status_code == 409:
-                print(f"⏩ Pulando: '{file['name']}' já está na fila de Staging.")
                 
         except requests.exceptions.ConnectionError:
-            print("❌ Erro: API offline. Ligue o servidor FastAPI.")
+            print("❌ Erro: API offline.")
             return
         
 if __name__ == '__main__':

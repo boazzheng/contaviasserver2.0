@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reprodutor e Contagem - ContaVias</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Esconde a scrollbar na lista de logs para ficar mais limpo */
+        #log-container::-webkit-scrollbar { width: 6px; }
+        #log-container::-webkit-scrollbar-track { background: #f1f1f1; rounded: 4px; }
+        #log-container::-webkit-scrollbar-thumb { background: #c7c7cc; border-radius: 4px; }
+    
+        /* Animação de Virar Página para o Resumo */
+        @keyframes slidePage {
+            0% { transform: translateX(30px); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+        }
+        .page-turn {
+            animation: slidePage 0.25s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans h-screen flex flex-col overflow-hidden">
+
+    <header class="bg-gray-800 border-b border-gray-700 p-3 flex justify-between items-center shrink-0 shadow-md z-10">
+        <div class="flex items-center gap-4">
+            <button onclick="voltarWorkspace()" class="text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded transition shadow-sm font-bold text-sm flex items-center gap-2">
+                ⬅️ Voltar
+            </button>
+            <div>
+                <h1 id="slice-name" class="font-bold text-lg text-white leading-tight">Carregando...</h1>
+                <p id="project-name" class="text-xs text-gray-400">Aguarde...</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="text-right">
+                <p class="text-xs text-gray-400">Total Contado</p>
+                <p id="total-count" class="text-xl font-bold text-indigo-400 leading-tight">0</p>
+            </div>
+            <button onclick="salvarEConcluir()" id="btn-salvar" class="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-6 rounded shadow transition">
+                💾 Salvar e Concluir
+            </button>
+        </div>
+    </header>
+
+    <main class="flex flex-1 overflow-hidden">
+        
+        <section class="flex-1 flex flex-col bg-black relative">
+            <div class="flex-1 relative w-full h-full flex items-center justify-center overflow-hidden">
+                <video id="videoPlayer" class="w-full h-full object-contain bg-black" controls muted>
+                    <source id="videoSource" src="" type="video/mp4">
+                    Seu navegador não suporta vídeos HTML5.
+                </video>
+            </div>
+
+            <div class="bg-gray-800 p-3 flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-2">
+                    <button onclick="pular(-5)" class="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded transition" title="Voltar 5s (Seta Esquerda)">⏪ 5s</button>
+                    <button onclick="togglePlay()" id="btn-play" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-bold transition w-24" title="Play/Pause (Espaço)">▶️ Play</button>
+                    <button onclick="pular(5)" class="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded transition" title="Avançar 5s (Seta Direita)">5s ⏩</button>
+                </div>
+                
+                <div class="flex items-center gap-3 bg-gray-700 px-3 py-1.5 rounded">
+                    <span class="text-xs text-gray-400 font-bold">VELOCIDADE</span>
+                    <button onclick="mudarVelocidade(-0.25)" class="text-gray-300 hover:text-white px-2" title="Diminuir (Seta Baixo)">-</button>
+                    <span id="speed-display" class="font-mono text-white font-bold w-12 text-center">1.00x</span>
+                    <button onclick="mudarVelocidade(0.25)" class="text-gray-300 hover:text-white px-2" title="Aumentar (Seta Cima)">+</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="right-panel" class="w-96 bg-gray-800 border-l border-gray-700 flex flex-col shrink-0 transition-all duration-300">
+            
+            <div class="p-4 border-b border-gray-700 max-h-48 overflow-y-auto shrink-0 flex flex-col">
+                <h2 class="text-sm font-bold text-gray-400 uppercase mb-3">1. Movimento Ativo</h2>
+                <div id="tasks-container" class="grid grid-cols-3 gap-2 mb-4">
+                    <p class="text-sm text-gray-500 italic col-span-3">Carregando movimentos...</p>
+                </div>
+                <button onclick="salvarEConcluir()" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded shadow-md transition transform hover:scale-[1.02] flex items-center justify-center gap-2 mt-auto">
+                    ✅ Salvar e Concluir Movimento
+                </button>
+            </div>
+
+            <div class="p-4 border-b border-gray-700 bg-gray-750 shrink-0">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase">2. Registrar Veículo</h2>
+                    <button onclick="desfazerUltimo()" class="text-xs font-bold text-red-400 hover:text-red-300 transition flex items-center gap-1.5 group">
+                        <span>↩️ Desfazer</span>
+                        <span class="text-[9px] bg-red-900/40 border border-red-800/50 text-red-300 px-1.5 py-0.5 rounded font-mono tracking-wider">BACKSPACE</span>
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-4 gap-2">
+                    <button id="btn-Carro" onclick="registrar('Carro')" class="bg-gray-700 hover:bg-indigo-600 text-white py-3 rounded flex flex-col items-center justify-center transition-all duration-150 border border-gray-600 hover:border-indigo-400 group shadow-sm">
+                        <span class="text-xl leading-none">🚗</span>
+                        <span class="font-bold text-[10px] mt-1.5">Carro</span>
+                        <span class="text-[10px] text-gray-400 group-hover:text-indigo-200 mt-0.5 font-mono font-bold">A</span>
+                    </button>
+                    <button id="btn-Moto" onclick="registrar('Moto')" class="bg-gray-700 hover:bg-indigo-600 text-white py-3 rounded flex flex-col items-center justify-center transition-all duration-150 border border-gray-600 hover:border-indigo-400 group shadow-sm">
+                        <span class="text-xl leading-none">🏍️</span>
+                        <span class="font-bold text-[10px] mt-1.5">Moto</span>
+                        <span class="text-[10px] text-gray-400 group-hover:text-indigo-200 mt-0.5 font-mono font-bold">S</span>
+                    </button>
+                    <button id="btn-Ônibus" onclick="registrar('Ônibus')" class="bg-gray-700 hover:bg-indigo-600 text-white py-3 rounded flex flex-col items-center justify-center transition-all duration-150 border border-gray-600 hover:border-indigo-400 group shadow-sm">
+                        <span class="text-xl leading-none">🚌</span>
+                        <span class="font-bold text-[10px] mt-1.5">Ônibus</span>
+                        <span class="text-[10px] text-gray-400 group-hover:text-indigo-200 mt-0.5 font-mono font-bold">D</span>
+                    </button>
+                    <button id="btn-Caminhão" onclick="registrar('Caminhão')" class="bg-gray-700 hover:bg-indigo-600 text-white py-3 rounded flex flex-col items-center justify-center transition-all duration-150 border border-gray-600 hover:border-indigo-400 group shadow-sm">
+                        <span class="text-xl leading-none">🚚</span>
+                        <span class="font-bold text-[10px] mt-1.5">Caminhão</span>
+                        <span class="text-[10px] text-gray-400 group-hover:text-indigo-200 mt-0.5 font-mono font-bold">F</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-4 flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase">3. Resumo Consolidado</h2>
+                    <button id="btn-copy" onclick="copiarTabela()" class="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition flex items-center gap-1.5 bg-indigo-900/30 border border-indigo-800/50 px-2 py-1 rounded shadow-sm">
+                        📋 Copiar Tabela
+                    </button>
+                </div>
+                
+                <div class="flex gap-2 flex-1 overflow-hidden">
+                    
+                    <div class="flex-1 flex flex-col min-w-0">
+                        <h3 id="titulo-novo" class="text-[10px] text-gray-400 font-bold uppercase mb-1 text-center hidden">Nova Contagem</h3>
+                        <div id="log-container" class="flex-1 overflow-y-auto bg-gray-900 rounded border border-gray-700 p-2 flex flex-col gap-2">
+                            <p class="text-xs text-gray-500 text-center p-4">Nenhum registro no movimento ativo.</p>
+                        </div>
+                    </div>
+
+                    <div id="painel-antigo" class="hidden flex-1 flex flex-col min-w-0">
+                        <h3 class="text-[10px] text-indigo-400 font-bold uppercase mb-1 text-center">Contagem Salva</h3>
+                        <div id="log-antigo-container" class="flex-1 overflow-y-auto bg-gray-900/40 rounded border border-gray-800 p-2 flex flex-col gap-2 opacity-80">
+                            </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <script>
+        const sliceId = {{ slice_id }};
+        const userId = new URLSearchParams(window.location.search).get('user_id');
+        
+        let tarefas = [];
+        let tarefaAtivaId = null;
+        let registros = []; // Array que vai para o banco [{task_id, vehicle_class, video_time}]
+
+        let registros_antigos = []; // Guarda os dados carregados do banco no modo revisão
+        const urlParams = new URLSearchParams(window.location.search);
+        const isReviewMode = urlParams.get('review') === 'true';
+        const taskIdReview = urlParams.get('task_id');
+        let blocosModificados = new Set();
+        
+        const video = document.getElementById('videoPlayer');
+        
+        // ==========================================
+        // 1. CARREGAMENTO DOS DADOS
+        // ==========================================
+        async function carregarDados() {
+            if (!userId) return alert("Erro: Usuário não identificado.");
+
+            try {
+                // 1. Constrói a URL
+                let urlApi = `/api/workspace/slice/${sliceId}/data?user_id=${userId}&review=${isReviewMode}`;
+                if (taskIdReview) {
+                    urlApi += `&task_id=${taskIdReview}`;
+                }
+
+                // 2. Chama o Backend
+                const response = await fetch(urlApi);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Erro da API: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                
+                // 3. Preenche Textos
+                const elSliceName = document.getElementById('slice-name');
+                if (elSliceName) elSliceName.innerText = data.slice_name || "Fatia de Tempo";
+                
+                const elProjectName = document.getElementById('project-name');
+                if (elProjectName) elProjectName.innerText = data.project_name || "";
+                
+                video.src = data.video_url;
+
+                // 4. LÓGICA DE REVISÃO (Com Travões de Segurança)
+                if (isReviewMode) {
+                    const rightPanel = document.getElementById('right-panel');
+                    if (rightPanel) rightPanel.classList.replace('w-96', 'w-[560px]');
+                    
+                    const painelAntigo = document.getElementById('painel-antigo');
+                    if (painelAntigo) {
+                        painelAntigo.classList.remove('hidden');
+                        painelAntigo.classList.add('flex');
+                    }
+                    
+                    const tituloNovo = document.getElementById('titulo-novo');
+                    if (tituloNovo) tituloNovo.classList.remove('hidden');
+                    
+                    if (data.existing_records) registros_antigos = data.existing_records;
+                    registros = []; 
+                } else {
+                    if (data.existing_records) {
+                        registros = data.existing_records;
+                        atualizarContador();
+                    }
+                }
+
+                // 5. Monta os Movimentos
+                tarefas = data.tasks;
+                const container = document.getElementById('tasks-container');
+                container.innerHTML = ''; // Limpa a mensagem "Carregando..."
+                
+                if (tarefas.length === 0) {
+                    container.innerHTML = '<p class="text-sm text-red-500 italic col-span-3">Nenhum movimento encontrado para esta tarefa.</p>';
+                    return;
+                }
+
+                tarefas.forEach((t, index) => {
+                    const checked = index === 0 ? 'checked' : '';
+                    if (index === 0) tarefaAtivaId = t.id;
+                    container.innerHTML += `
+                        <label class="flex flex-col items-center justify-center p-2 rounded cursor-pointer border text-center transition-all duration-200 shadow-sm select-none ${index === 0 ? 'bg-indigo-900 border-indigo-500 scale-105' : 'bg-gray-700 border-gray-600 hover:bg-gray-600'}" id="label-task-${t.id}" title="${t.movement_name}">
+                            <input type="radio" name="activeTask" value="${t.id}" ${checked} onchange="mudarTarefaAtiva(${t.id})" class="hidden">
+                            <span class="text-[11px] leading-tight font-bold text-gray-200 line-clamp-2">${t.movement_name}</span>
+                        </label>
+                    `;
+                });
+
+                renderizarLogConsolidado();
+                if (isReviewMode) renderizarLogAntigo();
+
+            } catch (error) {
+                console.error("🔥 Ocorreu um erro no carregamento:", error);
+                const container = document.getElementById('tasks-container');
+                if (container) container.innerHTML = `<p class="text-xs text-red-500 italic col-span-3">Falha técnica: ${error.message}</p>`;
+            }
+        }
+        
+        function mudarTarefaAtiva(id) {
+            tarefaAtivaId = id;
+            
+            // 1. Atualiza o visual dos botões de movimento
+            tarefas.forEach(t => {
+                const label = document.getElementById(`label-task-${t.id}`);
+                if (t.id === id) {
+                    label.classList.replace('bg-gray-700', 'bg-indigo-900');
+                    label.classList.replace('border-gray-600', 'border-indigo-500');
+                    label.classList.add('scale-105'); // Dá um destaque no botão ativo
+                    label.classList.remove('hover:bg-gray-600');
+                } else {
+                    label.classList.replace('bg-indigo-900', 'bg-gray-700');
+                    label.classList.replace('border-indigo-500', 'border-gray-600');
+                    label.classList.remove('scale-105');
+                    label.classList.add('hover:bg-gray-600');
+                }
+            });
+
+            // Renderiza e anima a tabela Nova
+            const logContainer = document.getElementById('log-container');
+            logContainer.classList.remove('page-turn');
+            void logContainer.offsetWidth;
+            logContainer.classList.add('page-turn');
+            renderizarLogConsolidado();
+
+            // Renderiza e anima a tabela Antiga (se aplicável)
+            if (isReviewMode) {
+                const logAntigo = document.getElementById('log-antigo-container');
+                logAntigo.classList.remove('page-turn');
+                void logAntigo.offsetWidth;
+                logAntigo.classList.add('page-turn');
+                renderizarLogAntigo();
+            }
+        }
+
+        // ==========================================
+        // 2. LÓGICA DE CONTAGEM E LOG
+        // ==========================================
+        function registrar(classeVeiculo) {
+            if (!tarefaAtivaId) return alert("Selecione um movimento primeiro!");
+
+            const tempoExato = video.currentTime;
+            
+            // Marca este bloco de 15 min como "Modificado"
+            const blocoNum = Math.floor(tempoExato / 900);
+            blocosModificados.add(`${tarefaAtivaId}-${blocoNum}`);
+
+            const novoRegistro = {
+                task_id: tarefaAtivaId,
+                vehicle_class: classeVeiculo,
+                video_time: tempoExato,
+            };
+
+            registros.push(novoRegistro);
+            atualizarContador();
+            renderizarLogConsolidado(); 
+
+            // (Pode manter o resto do código visual de piscar os botões aqui...)
+        }
+
+        function gerarResumoBase() {
+            // Calcula qual é o bloco mais avançado: ou o tempo do vídeo, ou o registro mais longo
+            let maxBloco = Math.floor(video.currentTime / 900);
+            
+            [...registros, ...registros_antigos].forEach(r => {
+                if(r.task_id === tarefaAtivaId) {
+                    const b = Math.floor(r.video_time / 900);
+                    if (b > maxBloco) maxBloco = b;
+                }
+            });
+
+            const resumo = {};
+            // Cria todas as "linhas" vazias de 0 até o bloco máximo
+            for (let b = 0; b <= maxBloco; b++) {
+                const minInicio = String(b * 15).padStart(2, '0');
+                const minFim = String((b + 1) * 15).padStart(2, '0');
+                resumo[`${minInicio}-${minFim}`] = { '_bloco': b, 'Carro': 0, 'Moto': 0, 'Ônibus': 0, 'Caminhão': 0 };
+            }
+            return resumo;
+        }
+
+        function renderizarLogConsolidado() {
+            const container = document.getElementById('log-container');
+            const registrosAtivos = registros.filter(r => r.task_id === tarefaAtivaId);
+            
+            // Usa a base pré-preenchida
+            const resumo = gerarResumoBase();
+            
+            // Preenche com os cliques
+            registrosAtivos.forEach(r => {
+                const blocoMinutos = Math.floor(r.video_time / 900) * 15;
+                const label = `${String(blocoMinutos).padStart(2, '0')}-${String(blocoMinutos + 15).padStart(2, '0')}`;
+                if (resumo[label] && resumo[label][r.vehicle_class] !== undefined) {
+                    resumo[label][r.vehicle_class]++;
+                }
+            });
+
+            montarHTMLTabela(resumo, container, false);
+        }
+
+        function renderizarLogAntigo() {
+            const container = document.getElementById('log-antigo-container');
+            if (!container) return;
+
+            const registrosAtivos = registros_antigos.filter(r => r.task_id === tarefaAtivaId);
+            const resumo = gerarResumoBase();
+            
+            registrosAtivos.forEach(r => {
+                const blocoMinutos = Math.floor(r.video_time / 900) * 15;
+                const label = `${String(blocoMinutos).padStart(2, '0')}-${String(blocoMinutos + 15).padStart(2, '0')}`;
+                if (resumo[label] && resumo[label][r.vehicle_class] !== undefined) {
+                    resumo[label][r.vehicle_class]++;
+                }
+            });
+
+            montarHTMLTabela(resumo, container, true);
+        }
+
+        // Função auxiliar para evitar repetição de código HTML gigante
+        function montarHTMLTabela(resumo, container, isAntigo) {
+            let html = '';
+            const labelsOrdenadas = Object.keys(resumo).sort();
+            const icones = { 'Carro': '🚗', 'Moto': '🏍️', 'Ônibus': '🚌', 'Caminhão': '🚚' };
+            const ordemExata = ['Carro', 'Moto', 'Ônibus', 'Caminhão'];
+
+            labelsOrdenadas.forEach(label => {
+                const blocoNum = resumo[label]['_bloco'];
+                
+                // Estilo para a tabela antiga (opaca) vs Nova (Brilhante)
+                const bgBox = isAntigo ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-800 border-gray-700';
+                const textHeader = isAntigo ? 'text-indigo-400/70' : 'text-indigo-400';
+
+                html += `
+                <div class="${bgBox} p-2 rounded border mb-1">
+                    <div class="font-bold text-xs ${textHeader} border-b border-gray-700/50 pb-1 mb-2">⏱️ ${label}</div>
+                    <div class="grid grid-cols-4 gap-2">`;
+                
+                ordemExata.forEach(classe => {
+                    const qtd = resumo[label][classe];
+                    
+                    let textColor = 'text-gray-600';
+                    let bgColor = isAntigo ? 'bg-gray-800/30 border-transparent' : 'bg-gray-750 border-transparent';
+                    
+                    if (qtd > 0) {
+                        textColor = isAntigo ? 'text-gray-300' : 'text-white';
+                        bgColor = isAntigo ? 'bg-indigo-900/10 border-indigo-500/20' : 'bg-indigo-900/30 border-indigo-500/30';
+                    }
+                    
+                    html += `
+                        <div class="flex flex-col items-center justify-center py-1 rounded border ${bgColor}">
+                            <span class="text-xs mb-0.5 opacity-60">${icones[classe]}</span>
+                            <span class="${textColor} font-bold text-sm leading-none">${qtd}</span>
+                        </div>`;
+                });
+                
+                html += `</div></div>`;
+            });
+            
+            container.innerHTML = html;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function desfazerUltimo() {
+            if (registros.length === 0) return;
+            
+            // Pega o tempo do último registro para também marcá-lo como modificado (mesmo que ele zere a contagem)
+            const ultimoTempo = registros[registros.length - 1].video_time;
+            const blocoNum = Math.floor(ultimoTempo / 900);
+            blocosModificados.add(`${tarefaAtivaId}-${blocoNum}`);
+
+            registros.pop();
+            atualizarContador();
+            renderizarLogConsolidado(); 
+            
+            // (Pode manter o resto do código visual do botão aqui...)
+        }
+
+        function copiarTabela() {
+            const registrosAtivos = registros.filter(r => r.task_id === tarefaAtivaId);
+            if (registrosAtivos.length === 0) {
+                alert("Não há dados para copiar neste movimento.");
+                return;
+            }
+
+            // Recalcula o resumo para a formatação da tabela
+            const resumo = {};
+            registrosAtivos.forEach(r => {
+                const blocoMinutos = Math.floor(r.video_time / 900) * 15;
+                const minInicio = String(blocoMinutos).padStart(2, '0');
+                const minFim = String(blocoMinutos + 15).padStart(2, '0');
+                const label = `${minInicio}-${minFim}`;
+                
+                if (!resumo[label]) resumo[label] = { 'Carro': 0, 'Moto': 0, 'Ônibus': 0, 'Caminhão': 0 };
+                resumo[label][r.vehicle_class]++;
+            });
+
+            const ordemExata = ['Carro', 'Moto', 'Ônibus', 'Caminhão'];
+            
+            // Monta o Header (Cabeçalho) separando as colunas com "\t" (Tabulação)
+            let textoTabela = "Intervalo\t" + ordemExata.join("\t") + "\n";
+
+            // Monta as linhas
+            Object.keys(resumo).sort().forEach(label => {
+                let linha = [label];
+                ordemExata.forEach(classe => {
+                    linha.push(resumo[label][classe]);
+                });
+                textoTabela += linha.join("\t") + "\n";
+            });
+
+            // Envia para a Área de Transferência (Clipboard)
+            navigator.clipboard.writeText(textoTabela).then(() => {
+                const btn = document.getElementById('btn-copy');
+                const htmlOriginal = btn.innerHTML;
+                
+                btn.innerHTML = '✅ Copiado!';
+                btn.classList.add('text-green-400', 'border-green-600/50', 'bg-green-900/30');
+                btn.classList.remove('text-indigo-400', 'border-indigo-800/50', 'bg-indigo-900/30');
+                
+                setTimeout(() => {
+                    btn.innerHTML = htmlOriginal;
+                    btn.classList.remove('text-green-400', 'border-green-600/50', 'bg-green-900/30');
+                    btn.classList.add('text-indigo-400', 'border-indigo-800/50', 'bg-indigo-900/30');
+                }, 2000);
+            }).catch(err => {
+                console.error("Erro ao copiar:", err);
+                alert("O seu navegador não permitiu copiar os dados automaticamente.");
+            });
+        }
+
+        function atualizarContador() {
+            document.getElementById('total-count').innerText = registros.length;
+        }
+
+        function renderizarLogAntigo() {
+            const container = document.getElementById('log-antigo-container');
+            const registrosAtivos = registros_antigos.filter(r => r.task_id === tarefaAtivaId);
+            const tarefaAtual = tarefas.find(t => t.id === tarefaAtivaId);
+            const nomeMovimento = tarefaAtual ? tarefaAtual.movement_name : 'Desconhecido';
+            
+            if (registrosAtivos.length === 0) {
+                container.innerHTML = `<p class="text-xs text-gray-600 text-center p-4">Nenhum dado salvo para este movimento.</p>`;
+                return;
+            }
+
+            const resumo = {};
+            registrosAtivos.forEach(r => {
+                const blocoMinutos = Math.floor(r.video_time / 900) * 15;
+                const minInicio = String(blocoMinutos).padStart(2, '0');
+                const minFim = String(blocoMinutos + 15).padStart(2, '0');
+                const label = `${minInicio}-${minFim}`;
+                if (!resumo[label]) resumo[label] = { '_bloco': blocoMinutos, 'Carro': 0, 'Moto': 0, 'Ônibus': 0, 'Caminhão': 0 };
+                if (resumo[label][r.vehicle_class] !== undefined) resumo[label][r.vehicle_class]++;
+            });
+
+            let html = '';
+            const labelsOrdenadas = Object.keys(resumo).sort();
+            const icones = { 'Carro': '🚗', 'Moto': '🏍️', 'Ônibus': '🚌', 'Caminhão': '🚚' };
+            const ordemExata = ['Carro', 'Moto', 'Ônibus', 'Caminhão'];
+
+            labelsOrdenadas.forEach(label => {
+                html += `<div class="bg-gray-800/50 p-2 rounded border border-gray-700/50 mb-1">
+                            <div class="font-bold text-xs text-indigo-400/70 border-b border-gray-700/50 pb-1 mb-2 flex justify-between items-center">
+                                <span>⏱️ ${label}</span>
+                            </div>
+                            <div class="grid grid-cols-4 gap-2">`;
+                ordemExata.forEach(classe => {
+                    const qtd = resumo[label][classe];
+                    const textColor = qtd > 0 ? 'text-gray-300' : 'text-gray-600';
+                    const bgColor = qtd > 0 ? 'bg-indigo-900/10 border-indigo-500/20' : 'bg-gray-800/30 border-transparent';
+                    html += `<div class="flex flex-col items-center justify-center py-1 rounded border ${bgColor}">
+                                <span class="text-xs mb-0.5 opacity-50 text-gray-500">${icones[classe]}</span>
+                                <span class="${textColor} font-bold text-sm leading-none">${qtd}</span>
+                            </div>`;
+                });
+                html += `</div></div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        // ==========================================
+        // 3. CONTROLES DO VÍDEO E ATALHOS
+        // ==========================================
+        function togglePlay() {
+            const btn = document.getElementById('btn-play');
+            if (video.paused) { video.play(); btn.innerHTML = '⏸️ Pause'; btn.classList.replace('bg-indigo-600', 'bg-orange-600'); } 
+            else { video.pause(); btn.innerHTML = '▶️ Play'; btn.classList.replace('bg-orange-600', 'bg-indigo-600'); }
+        }
+
+        function pular(segundos) {
+            video.currentTime += segundos;
+        }
+
+        function formatSeconds(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function mudarVelocidade(delta) {
+            let novaVel = video.playbackRate + delta;
+            if (novaVel < 0.25) novaVel = 0.25;
+            if (novaVel > 20.0) novaVel = 20.0; // LIMITE AUMENTADO PARA 20x
+            
+            try {
+                video.playbackRate = novaVel;
+                document.getElementById('speed-display').innerText = novaVel.toFixed(2) + 'x';
+            } catch (e) {
+                alert("O seu navegador não suporta uma velocidade tão alta.");
+            }
+        }
+
+        // MAPEAMENTO DE TECLADO MÁGICO
+        window.addEventListener('keydown', function(e) {
+            // Evita disparar atalhos se o cursor estiver num input de texto
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+            // Atalhos baseados no caractere (A, S, D, F, Backspace)
+            const key = e.key.toLowerCase();
+            switch(key) {
+                case ' ': e.preventDefault(); togglePlay(); break;
+                case 'a': e.preventDefault(); registrar('Carro'); break;
+                case 's': e.preventDefault(); registrar('Moto'); break;
+                case 'd': e.preventDefault(); registrar('Ônibus'); break;
+                case 'f': e.preventDefault(); registrar('Caminhão'); break;
+                case 'backspace': e.preventDefault(); desfazerUltimo(); break;
+            }
+
+            // Atalhos baseados no código da tecla (Setas)
+            switch(e.code) {
+                case 'ArrowLeft': e.preventDefault(); pular(-5); break;
+                case 'ArrowRight': e.preventDefault(); pular(5); break;
+                case 'ArrowUp': e.preventDefault(); mudarVelocidade(0.25); break;
+                case 'ArrowDown': e.preventDefault(); mudarVelocidade(-0.25); break;
+            }
+        });
+
+        // ==========================================
+        // 4. SALVAR E FINALIZAR
+        // ==========================================
+        async function salvarEConcluir() {
+            if (!tarefaAtivaId) return alert("Nenhum movimento selecionado!");
+
+            let registrosFinais = [];
+
+            if (isReviewMode) {
+                // 1. Pega tudo o que ele contou de novo agora
+                const registrosNovos = registros.filter(r => r.task_id === tarefaAtivaId);
+                
+                // 2. Filtra os antigos, jogando fora apenas os que pertencem aos blocos que ele recontou
+                const registrosAntigosIntactos = registros_antigos.filter(r => {
+                    if (r.task_id !== tarefaAtivaId) return false;
+                    const b = Math.floor(r.video_time / 900);
+                    
+                    // Se o bloco está na memória de modificados, DESCARTA o antigo
+                    if (blocosModificados.has(`${tarefaAtivaId}-${b}`)) {
+                        return false; 
+                    }
+                    return true; // Se não tocou, MANTÉM o antigo
+                });
+                
+                // Junta os dois mundos
+                registrosFinais = [...registrosAntigosIntactos, ...registrosNovos];
+            } else {
+                // Modo Normal: Envia só o que ele contou
+                registrosFinais = registros.filter(r => r.task_id === tarefaAtivaId);
+            }
+
+            if (!confirm(`Deseja finalizar e salvar a contagem oficial deste movimento?`)) return;
+
+            try {
+                const payload = {
+                    records: registrosFinais.map(r => ({
+                        vehicle_class: r.vehicle_class,
+                        video_time: r.video_time
+                    }))
+                };
+
+                const response = await fetch(`/api/tasks/${tarefaAtivaId}/complete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    alert("✅ Movimento salvo com sucesso!");
+                    window.location.href = '/freelancer/workspace';
+                } else {
+                    const err = await response.json();
+                    alert("Erro ao salvar: " + (err.detail || "Falha desconhecida"));
+                }
+            } catch (error) {
+                alert("Erro de conexão ao tentar salvar.");
+            }
+        }
+
+        function voltarWorkspace() {
+            window.location.href = `/freelancer/workspace?user_id=${userId}`;
+        }
+
+        // Inicia
+        document.addEventListener('DOMContentLoaded', carregarDados);
+
+        video.addEventListener('seeked', () => {
+            renderizarLogConsolidado();
+            if (isReviewMode) renderizarLogAntigo();
+        });
+    </script>
+</body>
+</html>

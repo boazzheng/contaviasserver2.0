@@ -1,7 +1,7 @@
 import enum
 import json
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, ForeignKey, Enum, DateTime, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, Enum, DateTime, Text, Float
 from sqlalchemy.orm import relationship
 
 # Importe a Base e o engine do seu arquivo database.py
@@ -127,6 +127,17 @@ class MovementTask(Base):
     video_slice = relationship("VideoSlice", back_populates="tasks")
     movement = relationship("Movement")
     freelancer = relationship("User", back_populates="tasks")
+
+class CountRecord(Base):
+    __tablename__ = "count_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("movement_tasks.id", ondelete="CASCADE"))
+    vehicle_class = Column(String)  # ex: "carro", "moto", "onibus", "caminhao"
+    video_time = Column(Float)      # O segundo exato do vídeo (ex: 125.4)
+    
+    # Relação reversa (opcional, mas boa prática)
+    task = relationship("MovementTask", backref="records")
 
 def init_db():
     Base.metadata.create_all(bind=engine)
