@@ -58,6 +58,23 @@ class Project(Base):
     # RELAÇÃO COM MOVIMENTOS:
     movements = relationship("Movement", back_populates="project", cascade="all, delete-orphan")
 
+class WorkPackage(Base):
+    __tablename__ = 'work_packages'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)  # Ex: "Local 1 - Câmera Norte" ou "Interseção A"
+    project_id = Column(Integer, ForeignKey('projects.id'))
+    freelancer_id = Column(Integer, ForeignKey('users.id'))
+    status = Column(String, default="pending")  # pending, in_progress, completed
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relacionamentos
+    project = relationship("Project")
+    freelancer = relationship("User")
+    
+    # Um pacote tem várias micro-tarefas (movimentos de vídeos)
+    micro_tasks = relationship("MovementTask", back_populates="work_package", cascade="all, delete-orphan")
+
 class Video(Base):
     __tablename__ = "videos"
     id = Column(Integer, primary_key=True, index=True)
@@ -127,7 +144,9 @@ class MovementTask(Base):
     video_slice = relationship("VideoSlice", back_populates="tasks")
     movement = relationship("Movement")
     freelancer = relationship("User", back_populates="tasks")
-
+    work_package_id = Column(Integer, ForeignKey('work_packages.id'), nullable=True)
+    work_package = relationship("WorkPackage", back_populates="micro_tasks")
+    
 class CountRecord(Base):
     __tablename__ = "count_records"
     

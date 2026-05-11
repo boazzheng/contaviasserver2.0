@@ -47,11 +47,14 @@
     <main class="flex flex-1 overflow-hidden">
         
         <section class="flex-1 flex flex-col bg-black relative">
-            <div class="flex-1 relative w-full h-full flex items-center justify-center overflow-hidden">
-                <video id="videoPlayer" class="w-full h-full object-contain bg-black" controls muted>
+            <div class="flex-1 relative w-full h-full flex items-center justify-center overflow-hidden bg-black">
+                <video id="videoPlayer" class="w-full h-full object-contain absolute inset-0 z-0" controls muted>
                     <source id="videoSource" src="" type="video/mp4">
                     Seu navegador não suporta vídeos HTML5.
                 </video>
+                
+                <svg id="zonasOverlay" class="absolute inset-0 w-full h-full pointer-events-none z-10" preserveAspectRatio="xMidYMid meet">
+                    </svg>
             </div>
 
             <div class="bg-gray-800 p-3 flex items-center justify-between shrink-0">
@@ -73,7 +76,13 @@
         <section id="right-panel" class="w-96 bg-gray-800 border-l border-gray-700 flex flex-col shrink-0 transition-all duration-300">
             
             <div class="p-4 border-b border-gray-700 max-h-48 overflow-y-auto shrink-0 flex flex-col">
-                <h2 class="text-sm font-bold text-gray-400 uppercase mb-3">1. Movimento Ativo</h2>
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase">1. Movimento Ativo</h2>
+                    <label class="flex items-center cursor-pointer gap-2 opacity-80 hover:opacity-100 transition" title="Mostrar/Esconder desenho das zonas no vídeo">
+                        <input type="checkbox" checked onchange="document.getElementById('zonasOverlay').style.display = this.checked ? 'block' : 'none'" class="cursor-pointer h-3 w-3 text-indigo-500 rounded border-gray-600 bg-gray-700">
+                        <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider select-none">Ver Zonas</span>
+                    </label>
+                </div>
                 <div id="tasks-container" class="grid grid-cols-3 gap-2 mb-4">
                     <p class="text-sm text-gray-500 italic col-span-3">Carregando movimentos...</p>
                 </div>
@@ -236,6 +245,10 @@
                     `;
                 });
 
+                if (tarefas.length > 0) {
+                    desenharZonasNoVideo(tarefas[0]); 
+                }
+
                 renderizarLogConsolidado();
                 if (isReviewMode) renderizarLogAntigo();
 
@@ -246,6 +259,99 @@
             }
         }
         
+        // ==========================================
+        // DESENHO DAS ZONAS (OVERLAY)
+        // ==========================================
+        function desenharZonasNoVideo(tarefa) {
+            const svg = document.getElementById('zonasOverlay');
+            const vid = document.getElementById('videoPlayer');
+            
+            if (!svg || !vid) return;
+            svg.innerHTML = ''; 
+
+            const vWidth = vid.videoWidth || 1920;
+            const vHeight = vid.videoHeight || 1080;
+
+            svg.setAttribute('viewBox', `0 0 ${vWidth} ${vHeight}`);
+
+            if (!tarefa || (!tarefa.origin_zone && !tarefa.destination_zone)) return;
+
+            // 🔴 NOVA FUNÇÃO: Processa pontos e acha o "Centro de Massa"
+            const processarGeometria = (geometria) => {
+                let pontosRaw = typeof geometria === 'string' ? JSON.parse(geometria) : geometria;
+                
+                let pontosPixels = pontosRaw.map(p => {
+                    let valX = p.x !== undefined ? p.x : p[0];
+                    let valY = p.y !== undefined ? p.y : p[1];
+
+                    if (valX <= 1 && valY <= 1 && !Number.isInteger(valX)) {
+                        valX = valX * vWidth;
+                        valY = valY * vHeight;
+                    }
+                    return { x: valX, y: valY };
+                });
+                
+                // Formato string para o SVG
+                let strPoints = pontosPixels.map(p => `${p.x},${p.y}`).join(' ');
+                
+                // Cálculo do Centroide (Média dos X e Y)
+                let centroX = pontosPixels.reduce((sum, p) => sum + p.x, 0) / pontosPixels.length;
+                let centroY = pontosPixels.reduce((sum, p) => sum + p.y, 0) / pontosPixels.length;
+                
+                return { str: strPoints, centro: { x: centroX, y: centroY } };
+            };
+
+            const fontSize = Math.max(16, vHeight * 0.035);
+
+            // 1. Zona de Origem (Verde)
+            if (tarefa.origin_zone && tarefa.origin_zone.geometry) {
+                const geoOrigem = processarGeometria(tarefa.origin_zone.geometry);
+                
+                const polyOrigem = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                polyOrigem.setAttribute("points", geoOrigem.str);
+                polyOrigem.setAttribute("fill", "rgba(34, 197, 94, 0.2)");
+                polyOrigem.setAttribute("stroke", "rgba(34, 197, 94, 0.8)");
+                polyOrigem.setAttribute("stroke-width", "3");
+                svg.appendChild(polyOrigem);
+
+                const textoOrigem = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                textoOrigem.setAttribute("x", geoOrigem.centro.x);
+                textoOrigem.setAttribute("y", geoOrigem.centro.y);
+                textoOrigem.setAttribute("text-anchor", "middle"); // Centraliza horizontalmente
+                textoOrigem.setAttribute("dominant-baseline", "middle"); // Centraliza verticalmente
+                textoOrigem.setAttribute("fill", "#4ade80");
+                textoOrigem.setAttribute("font-size", fontSize);
+                textoOrigem.setAttribute("font-weight", "bold");
+                textoOrigem.setAttribute("style", "text-shadow: 2px 2px 4px rgba(0,0,0,0.8);");
+                textoOrigem.textContent = tarefa.origin_zone.name;
+                svg.appendChild(textoOrigem);
+            }
+
+            // 2. Zona de Destino (Vermelha)
+            if (tarefa.destination_zone && tarefa.destination_zone.geometry) {
+                const geoDestino = processarGeometria(tarefa.destination_zone.geometry);
+                
+                const polyDestino = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                polyDestino.setAttribute("points", geoDestino.str);
+                polyDestino.setAttribute("fill", "rgba(239, 68, 68, 0.2)");
+                polyDestino.setAttribute("stroke", "rgba(239, 68, 68, 0.8)");
+                polyDestino.setAttribute("stroke-width", "3");
+                svg.appendChild(polyDestino);
+                
+                const textoDestino = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                textoDestino.setAttribute("x", geoDestino.centro.x);
+                textoDestino.setAttribute("y", geoDestino.centro.y);
+                textoDestino.setAttribute("text-anchor", "middle");
+                textoDestino.setAttribute("dominant-baseline", "middle");
+                textoDestino.setAttribute("fill", "#f87171");
+                textoDestino.setAttribute("font-size", fontSize);
+                textoDestino.setAttribute("font-weight", "bold");
+                textoDestino.setAttribute("style", "text-shadow: 2px 2px 4px rgba(0,0,0,0.8);");
+                textoDestino.textContent = tarefa.destination_zone.name;
+                svg.appendChild(textoDestino);
+            }
+        }
+
         function mudarTarefaAtiva(id) {
             tarefaAtivaId = id;
             
@@ -280,6 +386,9 @@
                 logAntigo.classList.add('page-turn');
                 renderizarLogAntigo();
             }
+            // Adicione ISTO no final da função mudarTarefaAtiva(id), logo antes do fechamento }
+            const tarefaAtual = tarefas.find(t => t.id === id);
+            desenharZonasNoVideo(tarefaAtual);
         }
 
         // ==========================================
@@ -654,6 +763,14 @@
         video.addEventListener('seeked', () => {
             renderizarLogConsolidado();
             if (isReviewMode) renderizarLogAntigo();
+        });
+
+        // O navegador avisa quando descobre o tamanho real do vídeo
+        video.addEventListener('loadedmetadata', () => {
+            if (tarefaAtivaId) {
+                const tarefaAtual = tarefas.find(t => t.id === tarefaAtivaId);
+                desenharZonasNoVideo(tarefaAtual);
+            }
         });
     </script>
 </body>

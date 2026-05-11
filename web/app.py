@@ -2,16 +2,14 @@ import os
 import sys
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session, joinedload
-import re
-from typing import Optional # Adicione isso no topo do arquivo se não tiver
+from sqlalchemy.orm import Session
+from typing import Optional, List # Adicione isso no topo do arquivo se não tiver
 
 from fastapi import FastAPI, Depends, HTTPException, Request # <-- Adicione o Request aqui
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates 
 from fastapi.responses import HTMLResponse
 
-from datetime import datetime, timedelta
 from typing import List
 
 # Garante que o Python ache a pasta 'web' corretamente
@@ -112,72 +110,150 @@ def create_auto_slices(video_id: int, slice_in: dict, db: Session = Depends(get_
 
 @app.post("/projects/{project_id}/config")
 def save_project_config(project_id: int, payload: schemas.ProjectConfigCreate, db: Session = Depends(get_db)):
+    from models import Project, Zone, Movement, Video, VideoStatus, MovementTask, CountRecord, VideoSlice
+    import json
+    
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
     
-    # 1. Limpa as zonas e movimentos antigos deste projeto
-    db.query(Zone).filter(Zone.project_id == project_id).delete()
-    db.query(Movement).filter(Movement.project_id == project_id).delete()
-    
-    # 2. Salva as novas Zonas
+    # 1. MAPEAMENTO DAS NOVAS ZONAS
+    # Primeiro guardamos os nomes das zonas que estão a entrar agora
+    nomes_zonas_vivas = {z.name.strip() for z in payload.zones}
+
+    # 2. HIGIENIZAÇÃO AUTOMÁTICA DOS MOVIMENTOS
+    # Filtramos a lista de movimentos para garantir que SÓ fiquem os que usam zonas existentes
+    movimentos_validados = []
+    for mov_str in payload.movements:
+        partes = mov_str.split(" ➔ ") if " ➔ " in mov_str else mov_str.split(" -> ")
+        if len(partes) == 2:
+            origem, destino = partes[0].strip(), partes[1].strip()
+            # SÓ adicionamos o movimento se AMBAS as zonas existirem na nova lista
+            if origem in nomes_zonas_vivas and destino in nomes_zonas_vivas:
+                movimentos_validados.append(mov_str)
+            else:
+                print(f"🧹 Higienizador: Removendo movimento órfão '{mov_str}'")
+
+    # 3. RECRIA AS ZONAS (Físicas no Banco)
+    db.query(Zone).filter(Zone.project_id == project_id).delete(synchronize_session=False)
     for zone_in in payload.zones:
         nova_zone = Zone(project_id=project_id, name=zone_in.name, geometry_data=json.dumps(zone_in.geometry))
         db.add(nova_zone)
         
-    # 3. Salva os novos Movimentos
-    for mov_name in payload.movements:
-        novo_mov = Movement(project_id=project_id, name=mov_name)
-        db.add(novo_mov)
+    # 4. SINCRONIZAÇÃO DOS MOVIMENTOS (Baseada na lista validada)
+    movimentos_atuais_db = db.query(Movement).filter(Movement.project_id == project_id).all()
+    mapa_db = {m.name: m for m in movimentos_atuais_db}
+    set_novos = set(movimentos_validados)
     
-    # Atualiza status dos vídeos
-    videos_prontos = db.query(Video).filter(Video.project_id == project_id, Video.status == VideoStatus.ready).all()
-    for v in videos_prontos:
-        v.status = VideoStatus.configured
+    # A. Deletar o que saiu (incluindo os órfãos que o higienizador barrou)
+    for nome_db, mov_obj in mapa_db.items():
+        if nome_db not in set_novos:
+            # Purgar tarefas e contagens vinculadas a este movimento extinto
+            tarefas = db.query(MovementTask).filter(MovementTask.movement_id == mov_obj.id).all()
+            ids_t = [t.id for t in tarefas]
+            if ids_t:
+                db.query(CountRecord).filter(CountRecord.task_id.in_(ids_t)).delete(synchronize_session=False)
+                db.query(MovementTask).filter(MovementTask.id.in_(ids_t)).delete(synchronize_session=False)
+            db.delete(mov_obj)
+            
+    # B. Adicionar o que é novo
+    novos_mov_objs = []
+    for nome_n in set_novos:
+        if nome_n not in mapa_db:
+            nm = Movement(project_id=project_id, name=nome_n)
+            db.add(nm)
+            novos_mov_objs.append(nm)
+            
+    db.flush() 
+    
+    # 5. PROPAGAÇÃO PARA VÍDEOS JÁ APROVADOS
+    if novos_mov_objs:
+        videos_ativos = db.query(Video).filter(
+            Video.project_id == project_id,
+            Video.status.in_([VideoStatus.approved, "approved", "completed"])
+        ).all()
+        
+        for v in videos_ativos:
+            for fatia in v.slices:
+                for nm in novos_mov_objs:
+                    # Cria a tarefa nova para o freela contar o novo movimento
+                    db.add(MovementTask(slice_id=fatia.id, movement_id=nm.id, status="pending"))
+
+    # 6. Atualiza status de vídeos em espera
+    db.query(Video).filter(
+        Video.project_id == project_id, 
+        Video.status == VideoStatus.ready
+    ).update({"status": VideoStatus.configured}, synchronize_session=False)
 
     db.commit()
-    return {"message": "Máscara e Matriz OD salvas com sucesso!"}
+    return {"message": "Configuração sincronizada e movimentos órfãos removidos!"}
 
 @app.patch("/projects/{project_id}/approve")
 def approve_project_for_ai(project_id: int, db: Session = Depends(get_db)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    
-    if not project.movements:
-        raise HTTPException(status_code=400, detail="Desenhe as zonas e salve os Movimentos antes de aprovar!")
+    try:
+        from models import Project, Video, VideoSlice, MovementTask
+        # Importe os seus Enums de status se necessário (ajuste conforme o seu código)
+        from models import VideoStatus, SliceStatus 
         
-    videos = db.query(Video).filter(Video.project_id == project_id, Video.status == VideoStatus.configured).all()
-    
-    from models import MovementTask # Importe a nova tabela
-    
-    for v in videos:
-        slices_to_process = v.slices
-        # Se não tiver fatias, cria a fatia do Vídeo Completo
-        if not slices_to_process:
-            fatia = VideoSlice(video_id=v.id, name="Vídeo Completo", start_time=0, end_time=0, nominal_duration=0)
-            db.add(fatia)
-            db.flush() # Força o banco a gerar o ID da fatia imediatamente
-            slices_to_process = [fatia]
+        project = db.query(Project).filter(Project.id == project_id).first()
+        
+        if not project or not project.movements:
+            raise HTTPException(status_code=400, detail="Desenhe as zonas e salve os Movimentos antes de aprovar!")
             
-        # MÁGICA: Para cada fatia, gera uma Tarefa para cada Movimento salvo!
-        for sl in slices_to_process:
-            for mov in project.movements:
-                nova_tarefa = MovementTask(slice_id=sl.id, movement_id=mov.id)
-                db.add(nova_tarefa)
+        videos = db.query(Video).filter(Video.project_id == project_id, Video.status == VideoStatus.configured).all()
+        
+        for v in videos:
+            slices_to_process = v.slices
+            # Se não tiver fatias, cria a fatia do Vídeo Completo
+            if not slices_to_process:
+                fatia = VideoSlice(video_id=v.id, name="Vídeo Completo", start_time=0, end_time=0, nominal_duration=0)
+                db.add(fatia)
+                db.flush() # Força o banco a gerar o ID da fatia imediatamente
+                slices_to_process = [fatia]
                 
-        v.status = VideoStatus.approved
-    db.commit()
-    return {"message": f"Vídeos liberados e Matriz de Tarefas gerada!"}
-
+            # MÁGICA: Para cada fatia, gera uma Tarefa para cada Movimento salvo!
+            for sl in slices_to_process:
+                for mov in project.movements:
+                    # 🔴 ADICIONADO: Forçamos o status=SliceStatus.pending para evitar erros de valor nulo no SQLite
+                    nova_tarefa = MovementTask(
+                        slice_id=sl.id, 
+                        movement_id=mov.id,
+                        status=SliceStatus.pending 
+                    )
+                    db.add(nova_tarefa)
+                    
+            v.status = VideoStatus.approved
+            
+        db.commit()
+        return {"message": "Vídeos liberados e Matriz de Tarefas gerada!"}
+        
+    except HTTPException:
+        # Repassa os erros 400 (ex: "Desenhe as zonas...") diretamente para a interface
+        raise
+    except Exception as e:
+        # Se bater na parede, cancela tudo, imprime o erro gigante no terminal e avisa a tela!
+        db.rollback()
+        print(f"🚨 ERRO CRÍTICO AO LIBERAR PROJETO {project_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro no banco de dados: {str(e)}")
+    
 @app.patch("/videos/{video_id}/ready")
-def set_video_ready(video_id: int, db: Session = Depends(get_db)):
-    """O robô chama esta rota quando termina o download e o OpenCV."""
+def mark_video_ready(video_id: int, db: Session = Depends(get_db)):
+    from models import Video, VideoStatus
+    
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
-    
+        
+    # 🔴 O ESCUDO ANTI-FANTASMA: Se já passou do estágio 'ready', ignora a requisição!
+    status_atual = str(video.status).replace("VideoStatus.", "")
+    if status_atual in ["configured", "approved", "completed"]:
+        return {"message": "O vídeo já avançou no fluxo. Status não alterado."}
+        
     video.status = VideoStatus.ready
     db.commit()
-    return {"message": f"Vídeo {video_id} está pronto para configuração"}
+    return {"message": "Vídeo marcado como pronto para configuração."}
 
 # ==========================================
 # ROTAS DE TESTE E VALIDAÇÃO
@@ -372,30 +448,65 @@ def create_user(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
 # 3. Rota que alimenta a tela de alocação (Traz Freelas + Vídeos Aprovados)
 @app.get("/allocation/data")
 def get_allocation_data(db: Session = Depends(get_db)):
-    freelancers = db.query(User).filter(User.role == "freelancer").all()
-    videos = db.query(Video).filter(Video.status.in_([VideoStatus.approved, VideoStatus.processing])).all()
-    freelas_data = [{"id": f.id, "name": f.name} for f in freelancers]
+    from models import Video, User, VideoStatus, MovementTask, WorkPackage
     
-    videos_data = []
+    freelas = db.query(User).filter(User.role == "freelancer").all()
+    
+    videos = db.query(Video).filter(
+        Video.status.in_([VideoStatus.approved, VideoStatus.configured, "approved"])
+    ).all()
+    
+    video_list = []
     for v in videos:
         slices_data = []
-        for s in v.slices:
-            # Lendo as tarefas dentro da fatia
+        for sl in v.slices:
             tasks_data = []
-            for t in s.tasks:
+            for t in sl.tasks:
+                # 🔴 BUSCA SEGURA E BLINDADA
+                freela_name = None
+                if t.assigned_to:
+                    user_obj = db.query(User).filter(User.id == t.assigned_to).first()
+                    if user_obj:
+                        freela_name = user_obj.name
+                
+                package_name = None
+                if getattr(t, 'work_package_id', None):
+                    pacote = db.query(WorkPackage).filter(WorkPackage.id == t.work_package_id).first()
+                    if pacote:
+                        package_name = pacote.name
+                
+                # Tratamento seguro do status
+                status_valor = t.status.value if hasattr(t.status, 'value') else str(t.status).replace("SliceStatus.", "")
+                
                 tasks_data.append({
                     "id": t.id,
-                    "movement_name": t.movement.name,
-                    "status": t.status,
-                    "freelancer_name": t.freelancer.name if t.freelancer else None
+                    "movement_name": t.movement.name if t.movement else "Movimento",
+                    "status": status_valor,
+                    "freelancer_name": freela_name,
+                    "package_name": package_name
                 })
-                
+            
             slices_data.append({
-                "id": s.id, "name": s.name, "start_time": s.start_time, "end_time": s.end_time,
-                "tasks": tasks_data # Envia as tarefas em vez do status único
+                "id": sl.id,
+                "name": sl.name,
+                "start_time": sl.start_time,
+                "end_time": sl.end_time,
+                "tasks": tasks_data,
+                "videoId": v.id,
+                "filename": v.original_filename
             })
-        videos_data.append({"id": v.id, "project_name": v.project.name if v.project else "Sem Projeto", "filename": v.original_filename, "status": v.status, "slices": slices_data})
-    return {"freelancers": freelas_data, "videos": videos_data}
+            
+        video_list.append({
+            "id": v.id,
+            "filename": v.original_filename,
+            "project_name": v.project.name if v.project else "Sem Projeto",
+            "slices": slices_data
+        })
+        
+    return {
+        "freelancers": [{"id": f.id, "name": f.name} for f in freelas],
+        "videos": video_list
+    }
 
 # 4. Rota para o Admin atribuir uma fatia a um Freela
 @app.patch("/slices/{slice_id}/assign")
@@ -420,27 +531,34 @@ class AssignTasksPayload(BaseModel):
     task_ids: List[int]
     user_id: int
 
-@app.patch("/videos/{video_id}/revert")
+@app.patch("/videos/{video_id}/revert") # Atenção: verifique se a sua URL é exatamente esta
 def revert_video_to_staging(video_id: int, db: Session = Depends(get_db)):
-    """Puxa um vídeo da Alocação de volta para a Staging Area, limpando suas tarefas."""
+    from models import Video, VideoSlice, MovementTask, CountRecord
+    
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
-    
-    from models import MovementTask
-    
-    # 1. Deleta todas as tarefas (MovementTasks) atreladas às fatias deste vídeo
-    for sl in video.slices:
-        db.query(MovementTask).filter(MovementTask.slice_id == sl.id).delete()
         
-    # 2. Deleta as fatias (VideoSlices) para que possam ser refeitas no Staging
-    db.query(VideoSlice).filter(VideoSlice.video_id == video_id).delete()
+    # Limpar todas as Fatias, Tarefas e Contagens antigas deste vídeo!
+    for fatia in video.slices:
+        tarefas_ids = [t.id for t in fatia.tasks]
+        
+        # 1. Apaga os registros (cliques) perdidos nessas tarefas
+        if tarefas_ids:
+            db.query(CountRecord).filter(CountRecord.task_id.in_(tarefas_ids)).delete(synchronize_session=False)
+        
+        # 2. Apaga as tarefas antigas
+        db.query(MovementTask).filter(MovementTask.slice_id == fatia.id).delete(synchronize_session=False)
+        
+    # 3. Apaga as Fatias (Slices) antigas
+    db.query(VideoSlice).filter(VideoSlice.video_id == video.id).delete(synchronize_session=False)
     
-    # 3. Muda o status de volta para 'configured' (Aparecerá na Staging Area com a máscara mantida)
-    video.status = VideoStatus.configured
+    # 4. Devolve o vídeo para a estaca zero
+    # Use "staged" ou "ready" dependendo de como o seu escaneador funciona
+    video.status = "ready" 
     
     db.commit()
-    return {"message": "Vídeo retornado para a Staging Area com sucesso!"}
+    return {"message": "Vídeo revertido e limpo com sucesso!"}
 
 @app.patch("/tasks/assign_bulk")
 def assign_tasks_bulk(payload: AssignTasksPayload, db: Session = Depends(get_db)):
@@ -454,6 +572,78 @@ def assign_tasks_bulk(payload: AssignTasksPayload, db: Session = Depends(get_db)
     db.commit()
     return {"message": f"{len(tasks)} tarefas atribuídas com sucesso!"}
 
+from pydantic import BaseModel
+from typing import List
+
+class CreateWorkPackageRequest(BaseModel):
+    name: str
+    freelancer_id: int
+    task_ids: List[int]
+
+@app.post("/api/admin/work-packages")
+def create_work_package(payload: CreateWorkPackageRequest, db: Session = Depends(get_db)):
+    try:
+        from models import WorkPackage, MovementTask, VideoSlice, Video
+        
+        # 1. Descobre a qual Projeto de verdade essas tarefas pertencem
+        primeira_tarefa = db.query(MovementTask).filter(MovementTask.id == payload.task_ids[0]).first()
+        fatia = db.query(VideoSlice).filter(VideoSlice.id == primeira_tarefa.slice_id).first() if primeira_tarefa else None
+        video = db.query(Video).filter(Video.id == fatia.video_id).first() if fatia else None
+        projeto_id = video.project_id if video else None
+
+        if not projeto_id:
+            raise HTTPException(status_code=400, detail="Tarefas órfãs sem projeto.")
+
+        # 2. SMART MERGE: Verifica se já existe um Lote ABERTO deste freela para este projeto
+        pacote_existente = db.query(WorkPackage).filter(
+            WorkPackage.freelancer_id == payload.freelancer_id,
+            WorkPackage.project_id == projeto_id,
+            WorkPackage.status != "completed"  # Só pega pacotes em andamento
+        ).first()
+
+        pacote_ativo_id = None
+
+        if pacote_existente:
+            # Se já tem, vamos apenas aproveitar o "envelope" existente!
+            pacote_ativo_id = pacote_existente.id
+            
+            # (Opcional) Se o admin digitou um nome novo, atualizamos o nome do lote
+            if payload.name and payload.name.strip() != "":
+                pacote_existente.name = payload.name
+            
+            db.flush()
+        else:
+            # 3. Se não tem, cria um Lote novinho em folha
+            # Se o admin não digitou nome, o sistema cria um nome automático limpo
+            nome_pacote = payload.name if payload.name.strip() != "" else f"Lote de Trabalho - Projeto #{projeto_id}"
+            
+            novo_pacote = WorkPackage(
+                name=nome_pacote,
+                freelancer_id=payload.freelancer_id,
+                project_id=projeto_id,
+                status="pending"
+            )
+            db.add(novo_pacote)
+            db.flush()
+            pacote_ativo_id = novo_pacote.id
+        
+        # 4. Atualiza todas as tarefas selecionadas para entrarem no Lote Ativo (novo ou existente)
+        db.query(MovementTask).filter(MovementTask.id.in_(payload.task_ids)).update({
+            "work_package_id": pacote_ativo_id,
+            "assigned_to": payload.freelancer_id,
+            "status": "pending" # Reseta caso seja uma realocação
+        }, synchronize_session=False)
+        
+        db.commit()
+        
+        mensagem = "Tarefas adicionadas ao lote existente!" if pacote_existente else "Novo Lote criado e alocado!"
+        return {"message": mensagem, "package_id": pacote_ativo_id}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"🚨 ERRO AO ALOCAR LOTE: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+        
 # ==========================================
 # ROTAS DO ÉPICO 4: WORKSPACE DO FREELANCER
 # ==========================================
@@ -465,67 +655,83 @@ def workspace_page(request: Request):
 
 @app.get("/api/freelancer/workspace/{user_id}")
 def get_workspace_data(user_id: int, db: Session = Depends(get_db)):
-    """Busca e agrupa as tarefas de um freelancer específico."""
-    from models import MovementTask, User, SliceStatus
-    
-    freela = db.query(User).filter(User.id == user_id).first()
-    if not freela:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
-    # Pega todas as tarefas que são deste freela e ainda não foram concluídas
-    tarefas = db.query(MovementTask).filter(
-        MovementTask.assigned_to == user_id,
-        MovementTask.status != SliceStatus.completed
-    ).all()
-
-    # Agrupa as tarefas por Vídeo > Fatia
-    agrupamento = {}
-    total_movimentos = 0
-
-    for t in tarefas:
-        fatia = t.video_slice
-        video = fatia.video
-        v_id = video.id
+    try:
+        from models import User, WorkPackage, MovementTask, SliceStatus, VideoSlice, Video
         
-        if v_id not in agrupamento:
-            agrupamento[v_id] = {
-                "video_id": v_id,
-                # Oculta o nome real e envia apenas o ID numérico do projeto
-                "project_name": f"Projeto #{video.project.id}" if video.project else "Avulso",
-                "filename": video.original_filename,
-                "slices": {}
-            }
+        freela = db.query(User).filter(User.id == user_id).first()
+        if not freela:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        
+        pacotes = db.query(WorkPackage).filter(
+            WorkPackage.freelancer_id == user_id,
+            WorkPackage.status != "completed"
+        ).all()
+        
+        packages_data = []
+        total_tasks_global = 0
+        
+        for p in pacotes:
+            tarefas = db.query(MovementTask).filter(MovementTask.work_package_id == p.id).all()
+            total_tasks = len(tarefas)
+            completed_tasks = sum(1 for t in tarefas if t.status == SliceStatus.completed)
+            total_tasks_global += (total_tasks - completed_tasks)
             
-        s_id = fatia.id
-        if s_id not in agrupamento[v_id]["slices"]:
-            agrupamento[v_id]["slices"][s_id] = {
-                "slice_id": s_id,
-                "name": fatia.name,
-                "start_time": fatia.start_time,
-                "end_time": fatia.end_time,
-                "tasks": []
-            }
+            agrupamento_videos = {}
+            for t in tarefas:
+                if t.status == SliceStatus.completed:
+                    continue 
+                
+                # Busca segura de relações
+                fatia = db.query(VideoSlice).filter(VideoSlice.id == t.slice_id).first()
+                video = db.query(Video).filter(Video.id == fatia.video_id).first() if fatia else None
+                
+                if not fatia or not video:
+                    continue
+                
+                v_id = video.id
+                if v_id not in agrupamento_videos:
+                    agrupamento_videos[v_id] = {
+                        "video_id": v_id,
+                        "filename": video.original_filename,
+                        "project_name": f"Projeto #{video.project_id}",
+                        "slices": {}
+                    }
+                
+                s_id = fatia.id
+                if s_id not in agrupamento_videos[v_id]["slices"]:
+                    agrupamento_videos[v_id]["slices"][s_id] = {
+                        "slice_id": s_id,
+                        "name": fatia.name,
+                        "tasks": []
+                    }
+                
+                movimento_nome = t.movement.name if hasattr(t, 'movement') and t.movement else "Movimento"
+                agrupamento_videos[v_id]["slices"][s_id]["tasks"].append({
+                    "id": t.id,
+                    "movement_name": movimento_nome
+                })
             
-        agrupamento[v_id]["slices"][s_id]["tasks"].append({
-            "task_id": t.id,
-            "movement_name": t.movement.name,
-            "status": t.status
-        })
-        total_movimentos += 1
-
-    # Formata a resposta para facilitar no Javascript do Frontend
-    videos_list = []
-    for v_data in agrupamento.values():
-        v_data["slices"] = list(v_data["slices"].values()) # Converte dict de fatias para lista
-        videos_list.append(v_data)
-
-    return {
-        "freelancer_name": freela.name,
-        "total_tasks": total_movimentos,
-        "total_videos": len(videos_list),
-        "videos": videos_list
-    }
-
+            for v in agrupamento_videos.values():
+                v["slices"] = list(v["slices"].values())
+                
+            packages_data.append({
+                "package_id": p.id,
+                "package_name": p.name,
+                "project_name": f"Projeto #{p.project_id}",
+                "progress": f"{completed_tasks}/{total_tasks} Movimentos Concluídos",
+                "videos": list(agrupamento_videos.values())
+            })
+        
+        return {
+            "freelancer_name": freela.name,
+            "total_tasks": total_tasks_global,
+            "total_packages": len(packages_data),
+            "packages": packages_data
+        }
+    except Exception as e:
+        print(f"🚨 ERRO NO WORKSPACE: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno no servidor")
+    
 # Rota para renderizar a tela do Reprodutor
 @app.get("/freelancer/workspace/counter/{slice_id}", response_class=HTMLResponse)
 def counter_page(request: Request, slice_id: int):
@@ -542,9 +748,8 @@ class CompleteTaskRequest(BaseModel):
 # 2. A rota exata que o frontend está a chamar
 @app.post("/api/tasks/{task_id}/complete")
 def complete_task(task_id: int, payload: CompleteTaskRequest, db: Session = Depends(get_db)):
-    from models import MovementTask, SliceStatus, CountRecord
+    from models import MovementTask, SliceStatus, CountRecord, WorkPackage
     
-    # Encontra a tarefa
     task = db.query(MovementTask).filter(MovementTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Tarefa não encontrada")
@@ -567,7 +772,23 @@ def complete_task(task_id: int, payload: CompleteTaskRequest, db: Session = Depe
     
     db.add_all(novos_registros)
     db.commit()
-    
+
+    # 🔴 NOVO: VERIFICAÇÃO DE FECHAMENTO DO PACOTE
+    if task.work_package_id:
+        pacote_id = task.work_package_id
+        # Busca TODAS as tarefas que pertencem a este mesmo pacote
+        todas_tarefas_pacote = db.query(MovementTask).filter(MovementTask.work_package_id == pacote_id).all()
+        
+        # Verifica se TODAS estão concluídas
+        todas_concluidas = all(t.status == SliceStatus.completed for t in todas_tarefas_pacote)
+        
+        if todas_concluidas:
+            pacote = db.query(WorkPackage).filter(WorkPackage.id == pacote_id).first()
+            if pacote:
+                pacote.status = "completed"
+                db.commit()
+                print(f"🎉 PACOTE FECHADO: O Pacote {pacote.name} foi 100% concluído!")
+
     return {"message": "Tarefa concluída e salva com sucesso!"}
 
 @app.get("/api/workspace/slice/{slice_id}/data")
@@ -611,18 +832,55 @@ def get_slice_counter_data(slice_id: int, user_id: int, review: str = "false", t
     projeto = fatia.video.project.name if fatia.video.project else "Projeto Padrão"
     url_video = f"/static/videos/{limpar_nome(cliente)}/{limpar_nome(projeto)}/{fatia.video.original_filename}"
     
+    zonas_do_projeto = {}
+    if fatia.video.project and hasattr(fatia.video.project, 'zones'):
+        for z in fatia.video.project.zones:
+            zonas_do_projeto[z.name.strip()] = z.geometry
+
+    tasks_data = []
+    for t in tarefas:
+        task_info = {
+            "id": t.id, 
+            "movement_name": t.movement.name if t.movement else "Desconhecido",
+            "origin_zone": None,
+            "destination_zone": None
+        }
+        
+        # A MÁGICA: Corta o nome "Origem ➔ Destino" para achar as zonas!
+        if t.movement and t.movement.name:
+            # Tenta separar pela seta que usamos no frontend
+            partes = t.movement.name.split(" ➔ ")
+            if len(partes) != 2: 
+                partes = t.movement.name.split(" -> ") # Plano B caso a seta seja diferente
+                
+            if len(partes) == 2:
+                nome_origem = partes[0].strip()
+                nome_destino = partes[1].strip()
+                
+                # Procura as zonas cortadas dentro do dicionário do projeto
+                if nome_origem in zonas_do_projeto:
+                    task_info["origin_zone"] = {
+                        "name": nome_origem,
+                        "geometry": zonas_do_projeto[nome_origem]
+                    }
+                    
+                if nome_destino in zonas_do_projeto:
+                    task_info["destination_zone"] = {
+                        "name": nome_destino,
+                        "geometry": zonas_do_projeto[nome_destino]
+                    }
+                
+        tasks_data.append(task_info)
+    
     return {
         "video_url": url_video,
         "slice_name": fatia.name,
         "project_name": f"Projeto #{fatia.video.project_id}",
-        "tasks": [{"id": t.id, "movement_name": t.movement.name} for t in tarefas],
+        "tasks": tasks_data, 
         "existing_records": registros_formatados
     }
 
 # Rota para salvar a bateria de contagens (timestamps)
-from pydantic import BaseModel
-from typing import List
-
 class CountRecordSchema(BaseModel):
     task_id: int
     vehicle_class: str
@@ -695,6 +953,93 @@ def get_user_history(user_id: int, db: Session = Depends(get_db)):
         traceback.print_exc()
         return []
        
+# ==========================================
+# ROTAS CONTAGEM TOTAL DOS FREELANCER
+# ==========================================
+
+@app.get("/api/admin/reports/{project_id}")
+def get_project_report(project_id: int, db: Session = Depends(get_db)):
+    from models import Project, Video, VideoSlice, MovementTask, CountRecord, SliceStatus
+    
+    # 1. Busca o projeto e valida
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+        
+    # 2. Coleta todos os dados em cascata
+    # Buscamos todos os vídeos do projeto -> todas as fatias -> todas as tarefas concluídas
+    videos = db.query(Video).filter(Video.project_id == project_id).all()
+    video_ids = [v.id for v in videos]
+    
+    slices = db.query(VideoSlice).filter(VideoSlice.video_id.in_(video_ids)).all()
+    slice_ids = [s.id for s in slices]
+    
+    # IMPORTANTE: Pegamos apenas o que os freelas já finalizaram
+    tasks = db.query(MovementTask).filter(
+        MovementTask.slice_id.in_(slice_ids),
+        MovementTask.status == SliceStatus.completed
+    ).all()
+    
+    task_ids = [t.id for t in tasks]
+    records = db.query(CountRecord).filter(CountRecord.task_id.in_(task_ids)).all()
+    
+    # 3. Mapeamento para performance (evita milhares de consultas ao banco no loop)
+    task_map = {t.id: t for t in tasks}
+    video_map = {v.id: v for v in videos}
+    slice_map = {s.id: s for s in slices}
+    
+    # 4. Agregação por Bloco de 15 minutos
+    report_dict = {}
+    
+    for r in records:
+        task = task_map.get(r.task_id)
+        if not task: continue
+        
+        fatia = slice_map.get(task.slice_id)
+        video = video_map.get(fatia.video_id)
+        
+        mov_name = task.movement.name if task.movement else "Movimento Indefinido"
+        video_filename = video.original_filename
+        
+        # Cálculo do intervalo (ex: clique aos 18min vira bloco de 15-30)
+        bloco_idx = int(r.video_time // 900)
+        intervalo_txt = f"{str(bloco_idx * 15).zfill(2)}:00 - {str((bloco_idx + 1) * 15).zfill(2)}:00"
+        
+        # Chave única para agrupar (Mesmo vídeo + Mesmo Movimento + Mesmo Intervalo)
+        chave = f"{video_filename}|{mov_name}|{intervalo_txt}"
+        
+        if chave not in report_dict:
+            report_dict[chave] = {
+                "video": video_filename,
+                "movement": mov_name,
+                "interval": intervalo_txt,
+                "sort_key": bloco_idx, # Usado apenas para ordenar a lista depois
+                "Carro": 0, "Moto": 0, "Ônibus": 0, "Caminhão": 0
+            }
+        
+        # Soma o veículo à contagem
+        classe = r.vehicle_class
+        if classe in report_dict[chave]:
+            report_dict[chave][classe] += 1
+            
+    # 5. Ordenação Final (Por Nome de Vídeo -> Movimento -> Horário)
+    resultado_final = list(report_dict.values())
+    resultado_final.sort(key=lambda x: (x['video'], x['movement'], x['sort_key']))
+    
+    return {
+        "project_name": project.name,
+        "client_name": project.client.name if project.client else "N/A",
+        "data": resultado_final
+    }
+
+@app.get("/admin/reports", response_class=HTMLResponse)
+def view_reports_page(request: Request):
+    # O FastAPI mais recente exige que os parâmetros sejam nomeados assim:
+    return templates.TemplateResponse(
+        request=request, 
+        name="reports.html"
+    )
+
 if __name__ == "__main__":
     import uvicorn
     # Roda o servidor na porta 8000

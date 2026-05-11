@@ -177,27 +177,30 @@ def scan_and_process():
         
         try:
             res = requests.post(API_URL, json=payload)
-            video_id = None
             
             if res.status_code == 201:
+                # 🟢 VÍDEO TOTALMENTE NOVO
                 video_id = res.json()['id']
                 print(f"✅ NOVO: '{file['name']}' salvo no banco.")
-            elif res.status_code == 409:
-                # Se já existe, pegamos o ID que vem na resposta da API
-                video_id = res.json().get('id')
-                print(f"ℹ️ EXISTENTE: '{file['name']}' já está no banco. Verificando integridade local...")
-
-            if video_id:
-                # Validação de Download: baixa se não existir
-                local_path = download_video(service, file['id'], file['name'], cliente, projeto)
                 
-                # Validação de Frames: extrai se a pasta do vídeo estiver vazia ou não existir
-                # (A função extract_frames já cria a pasta se não existir)
+                local_path = download_video(service, file['id'], file['name'], cliente, projeto)
                 extract_frames(local_path, video_id, cliente, projeto)
                 
-                # Avisa o backend que está tudo pronto (Download + Frames)
+                # Avisa o backend SÓ AQUI, pois é a primeira vez que ele fica pronto
                 requests.patch(f"http://localhost:8000/videos/{video_id}/ready")
                 
+            elif res.status_code == 409:
+                # 🟡 VÍDEO JÁ EXISTE NO BANCO
+                video_id = res.json().get('id')
+                print(f"ℹ️ EXISTENTE: '{file['name']}' já está no banco. Verificando integridade local...")
+                
+                if video_id:
+                    # Apenas garante que os arquivos existem na máquina (caso o PC tenha sido reiniciado)
+                    local_path = download_video(service, file['id'], file['name'], cliente, projeto)
+                    extract_frames(local_path, video_id, cliente, projeto)
+                    
+                    # NÃO chamamos o /ready aqui para não destruir o status de alocação!
+
         except requests.exceptions.ConnectionError:
             print("❌ Erro: API offline.")
             return

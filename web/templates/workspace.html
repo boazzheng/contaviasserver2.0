@@ -39,7 +39,7 @@
                     <div class="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">📋</div>
                     <h3 class="text-gray-500 font-semibold text-sm uppercase tracking-wider mb-1">Novas Tarefas</h3>
                     <div class="text-4xl font-bold text-gray-800 mb-2"><span id="count-tasks">0</span></div>
-                    <p class="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded">Distribuídas em <span id="count-videos" class="font-bold">0</span> vídeos</p>
+                    <p class="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded">Distribuídas em <span id="count-packages" class="font-bold">0</span> pacotes</p>
                     <div class="mt-4 text-indigo-600 text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity">Ver detalhes ➔</div>
                 </div>
 
@@ -159,77 +159,105 @@
 
         async function carregarWorkspace(id) {
             try {
-                // Carrega os dados das tarefas pendentes (sua rota atual)
                 const response = await fetch(`/api/freelancer/workspace/${id}`);
                 workspaceData = await response.json();
                 
                 document.getElementById('freela-name').innerText = workspaceData.freelancer_name;
                 document.getElementById('count-tasks').innerText = workspaceData.total_tasks;
-                document.getElementById('count-videos').innerText = workspaceData.total_videos;
-
-                // --- NOVO: Busca o histórico para atualizar o número no Card de Concluídas ---
-                const resHistory = await fetch(`/api/workspace/${id}/history`);
-                const historyData = await resHistory.json();
                 
-                // Atualiza o número no card verde
-                const countCompleted = document.getElementById('count-completed');
-                if (countCompleted) {
-                    countCompleted.innerText = historyData.length;
-                }
+                // 🔴 ATUALIZADO AQUI
+                const elCountPackages = document.getElementById('count-packages');
+                if(elCountPackages) elCountPackages.innerText = workspaceData.total_packages;
 
-                document.getElementById('no-user-view').classList.add('hidden');
+                // Histórico para o Card
+                try {
+                    const resHistory = await fetch(`/api/workspace/${id}/history`);
+                    if (resHistory.ok) {
+                        const historyData = await resHistory.json();
+                        document.getElementById('count-completed').innerText = historyData.length;
+                    }
+                } catch (e) {}
+
                 voltarDashboard(); 
-
             } catch (error) {
                 console.error("Erro ao carregar workspace:", error);
             }
         }
 
-        // --- RENDERIZAÇÃO DAS TELAS ---
         function renderizarLista() {
             const container = document.getElementById('tasks-container');
             let html = '';
 
-            workspaceData.videos.forEach(video => {
-                let slicesHtml = '';
-                video.slices.forEach(slice => {
-                    let tagsMovimentos = '';
-                    slice.tasks.forEach(task => {
-                        tagsMovimentos += `<span class="bg-gray-100 border border-gray-300 text-gray-700 px-2 py-1 rounded text-[10px] font-bold shadow-sm whitespace-nowrap">🔄 ${task.movement_name}</span>`;
+            // 🔴 AGORA ITERAMOS POR PACOTES (PACKAGES) EM VEZ DE VÍDEOS SOLTOS
+            workspaceData.packages.forEach(pacote => {
+                
+                let videosHtml = '';
+                
+                pacote.videos.forEach(video => {
+                    let slicesHtml = '';
+                    video.slices.forEach(slice => {
+                        let tagsMovimentos = '';
+                        slice.tasks.forEach(task => {
+                            tagsMovimentos += `<span class="bg-gray-100 border border-gray-300 text-gray-700 px-2 py-1 rounded text-[10px] font-bold shadow-sm whitespace-nowrap">🔄 ${task.movement_name}</span>`;
+                        });
+
+                        slicesHtml += `
+                            <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-50 border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition gap-4">
+                                <div class="flex-grow">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded text-sm font-bold shadow-sm">🕒 ${slice.name}</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-1.5 mt-2">${tagsMovimentos}</div>
+                                </div>
+                                <button onclick="iniciarContagem(${slice.slice_id})" class="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transition transform hover:scale-105 flex items-center justify-center gap-2 shrink-0">
+                                    ▶️ Iniciar
+                                </button>
+                            </div>
+                        `;
                     });
 
-                    slicesHtml += `
-                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-50 border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition gap-4">
-                            <div class="flex-grow">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <span class="bg-yellow-100 text-yellow-800 border border-yellow-300 px-2 py-0.5 rounded text-sm font-bold shadow-sm">🕒 ${slice.name}</span>
-                                </div>
-                                <div class="flex flex-wrap gap-1.5 mt-2">${tagsMovimentos}</div>
+                    videosHtml += `
+                        <div class="border border-gray-200 rounded-lg overflow-hidden mb-4">
+                            <div class="bg-gray-100 px-4 py-2 flex items-center gap-2 border-b border-gray-200">
+                                <span>📁</span>
+                                <h4 class="font-bold text-sm text-gray-700 truncate" title="${video.filename}">${video.filename}</h4>
                             </div>
-                            <button onclick="iniciarContagem(${slice.slice_id})" class="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transition transform hover:scale-105 flex items-center justify-center gap-2 shrink-0">
-                                ▶️ Iniciar
-                            </button>
+                            <div class="p-3 space-y-3 bg-white">
+                                ${slicesHtml}
+                            </div>
                         </div>
                     `;
                 });
 
+                // HTML DO PACOTE (GUARDA-CHUVA)
                 html += `
-                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                        <div class="bg-gray-800 px-5 py-3 text-white flex flex-col md:flex-row md:items-center justify-between gap-2">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <span class="text-lg">📁</span>
-                                <h3 class="font-bold truncate" title="${video.filename}">${video.filename}</h3>
+                    <div class="bg-white rounded-xl shadow-md border border-gray-300 overflow-hidden mb-8">
+                        <div class="bg-indigo-900 px-5 py-4 text-white flex flex-col md:flex-row md:items-center justify-between gap-3">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <span class="text-2xl">📦</span>
+                                <div>
+                                    <h3 class="font-bold text-lg truncate">${pacote.package_name}</h3>
+                                    <p class="text-indigo-200 text-xs">${pacote.project_name}</p>
+                                </div>
                             </div>
-                            <span class="text-xs bg-gray-700 text-gray-300 px-2 py-1 rounded border border-gray-600 shrink-0">Projeto: ${video.project_name}</span>
+                            <span class="text-xs bg-indigo-800 text-indigo-100 px-3 py-1.5 rounded-full border border-indigo-700 shrink-0 font-bold shadow-inner">
+                                📈 Progresso: ${pacote.progress}
+                            </span>
                         </div>
-                        <div class="p-4 space-y-3">${slicesHtml}</div>
+                        <div class="p-5 bg-gray-50">
+                            ${videosHtml}
+                        </div>
                     </div>
                 `;
             });
 
+            if (html === '') {
+                html = '<div class="text-center py-12 bg-white rounded-xl border border-gray-200 text-gray-500">Nenhum pacote pendente. Excelente trabalho! 🎉</div>';
+            }
+
             container.innerHTML = html;
         }
-
+        
         async function renderizarHistorico() {
             const container = document.getElementById('history-container');
             container.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">Carregando histórico...</td></tr>';

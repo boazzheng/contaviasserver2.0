@@ -8,31 +8,27 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 
-<body class="bg-gray-100 font-sans leading-normal tracking-normal">
+<body class="bg-gray-100 font-sans leading-normal tracking-normal h-screen flex flex-col">
 
-    <nav class="bg-indigo-800 p-4 shadow-lg">
+    <nav class="bg-indigo-800 p-4 shadow-lg shrink-0">
         <div class="container mx-auto flex justify-between items-center">
             <div class="text-white font-bold text-xl">🚦 ContaVias Admin 2.0</div>
             <div class="flex space-x-4">
                 <a href="/admin/staging" class="text-indigo-200 hover:text-white transition">Fila de Staging</a>
-                <a href="/admin/allocation" class="text-white font-bold border-b-2 border-white pb-1">Alocação
-                    (Freelas)</a>
+                <a href="/admin/allocation" class="text-white font-bold border-b-2 border-white pb-1">Alocação (Pacotes)</a>
             </div>
         </div>
     </nav>
 
-    <div class="container mx-auto mt-8 p-4 flex flex-col md:flex-row gap-6">
+    <div class="container mx-auto mt-8 p-4 flex flex-col md:flex-row gap-6 flex-grow overflow-hidden">
 
-        <div class="w-full md:w-1/3 flex flex-col gap-6">
+        <div class="w-full md:w-1/3 flex flex-col gap-6 shrink-0 overflow-y-auto pb-8">
             <div class="bg-white shadow-md rounded-lg p-5 border-t-4 border-indigo-500">
                 <h2 class="text-lg font-bold text-gray-800 mb-4">👥 Adicionar Freelancer</h2>
                 <div class="space-y-3">
-                    <input type="text" id="freelaName" placeholder="Nome Completo"
-                        class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                    <input type="email" id="freelaEmail" placeholder="E-mail"
-                        class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                    <button onclick="cadastrarFreela()"
-                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">
+                    <input type="text" id="freelaName" placeholder="Nome Completo" class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <input type="email" id="freelaEmail" placeholder="E-mail" class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <button onclick="cadastrarFreela()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">
                         + Cadastrar
                     </button>
                 </div>
@@ -46,17 +42,32 @@
             </div>
         </div>
 
-        <div class="w-full md:w-2/3">
-            <div class="bg-white shadow-md rounded-lg p-5">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold text-gray-800">🎯 Atribuir Fatias de Vídeo</h2>
-                    <span
-                        class="text-xs bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded border border-yellow-200">Agrupado
-                        por Projeto</span>
+        <div class="w-full md:w-2/3 flex flex-col min-h-0">
+            <div class="bg-white shadow-md rounded-lg p-5 flex flex-col h-full">
+                
+                <div class="flex justify-between items-center mb-4 shrink-0">
+                    <h2 class="text-xl font-bold text-gray-800">📦 Criar Pacote de Trabalho</h2>
+                    <span class="text-xs bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded border border-yellow-200">Visão Macro</span>
                 </div>
 
-                <div id="containerVideos" class="space-y-4">
-                    <p class="text-center py-10 text-gray-500">Carregando matriz de alocação...</p>
+                <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-lg shadow-sm mb-6 flex flex-col lg:flex-row gap-4 items-end shrink-0">
+                    <div class="flex-grow w-full">
+                        <label class="block text-xs font-bold text-indigo-900 mb-1">Nome do Lote (Opcional):</label>
+                        <input type="text" id="packageName" placeholder="Deixe em branco para agrupamento automático" class="w-full p-2 border border-indigo-200 rounded text-sm focus:ring-indigo-500 focus:outline-none shadow-sm bg-white/70">
+                    </div>
+                    <div class="flex-grow w-full">
+                        <label class="block text-xs font-bold text-indigo-900 mb-1">Atribuir a (Freelancer):</label>
+                        <select id="globalFreelaSelect" class="w-full p-2 border border-indigo-200 rounded text-sm focus:ring-indigo-500 focus:outline-none shadow-sm bg-white cursor-pointer">
+                            <option value="">👤 Selecione um freela...</option>
+                        </select>
+                    </div>
+                    <button onclick="criarPacote()" id="btnCriarPacote" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded transition shadow-md whitespace-nowrap h-[38px] disabled:opacity-50 disabled:cursor-not-allowed">
+                        Criar e Atribuir (0)
+                    </button>
+                </div>
+
+                <div id="containerVideos" class="flex-grow overflow-y-auto space-y-4 pr-2">
+                    <p class="text-center py-10 text-gray-500">Carregando matriz de vídeos...</p>
                 </div>
             </div>
         </div>
@@ -67,12 +78,41 @@
         const projetosColapsados = new Set();
         const projetosJaVistos = new Set();
 
-        // ==========================================
-        // MEMÓRIA BLINDADA (UI STATE)
-        // ==========================================
+        // TOGGLES INTELIGENTES: Eles agora só selecionam tarefas LIVRES [data-assigned="false"]
+        function toggleOrigemLinha(sliceId, origem, isChecked) {
+            const checkboxes = document.querySelectorAll(`.task-checkbox-${sliceId}[data-origin="${origem}"][data-assigned="false"]`);
+            checkboxes.forEach(cb => { cb.checked = isChecked; atualizarStateCheckbox(parseInt(cb.value), isChecked); });
+        }
+
+        function toggleVideoInteiro(videoId, isChecked) {
+            const checkboxes = document.querySelectorAll(`input[type="checkbox"][data-video="${videoId}"][data-assigned="false"]`);
+            checkboxes.forEach(cb => { cb.checked = isChecked; atualizarStateCheckbox(parseInt(cb.value), isChecked); });
+        }
+
+        function toggleProjetoInteiro(projetoId, isChecked) {
+            const checkboxes = document.querySelectorAll(`input[type="checkbox"][data-project="${projetoId}"][data-assigned="false"]`);
+            checkboxes.forEach(cb => { cb.checked = isChecked; atualizarStateCheckbox(parseInt(cb.value), isChecked); });
+        }
+
+        // O Alerta de Realocação
+        function tratarSelecaoTarefa(checkbox, taskId) {
+            const isAssigned = checkbox.getAttribute('data-assigned') === "true";
+            const freelaName = checkbox.getAttribute('data-freela');
+
+            // Se está tentando marcar uma tarefa que já tem dono
+            if (checkbox.checked && isAssigned) {
+                const fName = (freelaName && freelaName !== "null" && freelaName.trim() !== "") ? freelaName : "outro freelancer";
+                if (!confirm(`⚠️ REALOCAÇÃO:\n\nEsta tarefa já está alocada para [ ${fName} ].\n\nDeseja retirar o acesso dessa pessoa e selecioná-la para um novo pacote?`)) {
+                    checkbox.checked = false; // Desmarca se o admin cancelar
+                    return;
+                }
+            }
+            atualizarStateCheckbox(taskId, checkbox.checked);
+        }
+
+        // MEMÓRIAS
         const tarefasSelecionadas = new Set();
-        const freelasSelecionados = {};
-        const togglesSelecionados = new Set(); // NOVO: Memória para o botão "Selecionar Linha"
+        const togglesSelecionados = new Set();
 
         function formatarTempo(segundos) {
             if (segundos === 0) return "Completo";
@@ -97,194 +137,225 @@
 
         async function carregarDados() {
             try {
+                console.log("🔍 Solicitando dados de alocação...");
                 const response = await fetch('/allocation/data');
+                if (!response.ok) throw new Error("Erro ao buscar dados do servidor");
+                
                 const data = await response.json();
+                console.log("📦 Dados recebidos:", data); // VEJA ISSO NO CONSOLE (F12)
+
                 freelancersGlobais = data.freelancers;
                 renderizarEquipe(data.freelancers);
+                
+                // Se não houver vídeos, avisamos explicitamente
+                if (!data.videos || data.videos.length === 0) {
+                    document.getElementById('containerVideos').innerHTML = 
+                        '<div class="text-center py-10 text-gray-500 bg-gray-50 rounded border border-dashed">Nenhum vídeo aprovado para alocação.</div>';
+                    return;
+                }
+
                 renderizarMatriz(data.videos);
-            } catch (error) { console.error("Erro:", error); }
+            } catch (error) { 
+                console.error("❌ Erro no carregarDados:", error);
+                document.getElementById('containerVideos').innerHTML = 
+                    `<p class="text-center py-10 text-red-500">Erro técnico: ${error.message}</p>`;
+            }
         }
 
         function renderizarEquipe(freelas) {
             const ul = document.getElementById('listaFreelas');
-            if (freelas.length === 0) { ul.innerHTML = '<li class="italic text-gray-400">Nenhum freelancer.</li>'; return; }
+            const selectGlobal = document.getElementById('globalFreelaSelect');
+            
+            // Guarda o valor selecionado para não apagar quando recarregar
+            const selectedValue = selectGlobal.value; 
+
+            if (freelas.length === 0) { 
+                ul.innerHTML = '<li class="italic text-gray-400">Nenhum freelancer.</li>'; 
+                selectGlobal.innerHTML = '<option value="">Sem freelancers disponíveis</option>';
+                return; 
+            }
+            
             ul.innerHTML = freelas.map(f => `<li class="flex items-center text-gray-700 border-b pb-1"><span class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center mr-3">${f.name.charAt(0).toUpperCase()}</span>${f.name}</li>`).join('');
+            
+            selectGlobal.innerHTML = '<option value="">👤 Selecione um freela...</option>' + 
+                freelas.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+                
+            selectGlobal.value = selectedValue; // Restaura a seleção
         }
 
         function atualizarStateCheckbox(taskId, isChecked) {
             if (isChecked) tarefasSelecionadas.add(taskId);
             else tarefasSelecionadas.delete(taskId);
+            
+            // Atualiza o contador do botão principal
+            document.getElementById('btnCriarPacote').innerText = `Criar e Atribuir (${tarefasSelecionadas.size})`;
         }
 
-        // NOVO: Guarda o estado do Toggle da Linha
         function atualizarStateToggle(toggleId, isChecked) {
             if (isChecked) togglesSelecionados.add(toggleId);
             else togglesSelecionados.delete(toggleId);
         }
 
         function renderizarMatriz(videos) {
-            const container = document.getElementById('containerVideos');
-            if (videos.length === 0) {
-                container.innerHTML = '<div class="text-center py-10 text-gray-500 bg-gray-50 rounded border border-dashed">Nenhum vídeo aprovado no momento.</div>';
-                return;
-            }
+            try {
+                console.log("🛠️ Iniciando o desenho da matriz com", videos.length, "vídeos...");
+                const container = document.getElementById('containerVideos');
+                
+                if (!videos || videos.length === 0) {
+                    container.innerHTML = '<div class="text-center py-10 text-gray-500 bg-gray-50 rounded border border-dashed">Nenhum vídeo pendente para alocação.</div>';
+                    return;
+                }
 
-            const projetos = {};
-            videos.forEach(video => {
-                const pName = video.project_name;
-                if (!projetos[pName]) projetos[pName] = [];
-                video.slices.forEach(slice => {
-                    projetos[pName].push({ ...slice, filename: video.filename, videoId: video.id });
-                });
-            });
-
-            let html = '';
-            for (const [pName, fatias] of Object.entries(projetos)) {
-                fatias.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-                const safeId = pName.replace(/[^a-zA-Z0-9]/g, '_');
-
-                if (!projetosJaVistos.has(safeId)) { projetosColapsados.add(safeId); projetosJaVistos.add(safeId); }
-                const isColapsado = projetosColapsados.has(safeId);
-                const displayClass = isColapsado ? 'hidden' : '';
-                const icone = isColapsado ? '▶' : '▼';
-
-                let slicesHtml = '<div class="divide-y divide-gray-200">';
-
-                fatias.forEach(slice => {
-                    const tasksPorOrigem = {};
-                    slice.tasks.forEach(t => {
-                        const origem = t.movement_name.split(' ➔ ')[0];
-                        if (!tasksPorOrigem[origem]) tasksPorOrigem[origem] = [];
-                        tasksPorOrigem[origem].push(t);
-                    });
-
-                    let tasksHtml = '<div class="flex flex-col gap-1.5 mt-2 w-full">';
-
-                    for (const [origem, originTasks] of Object.entries(tasksPorOrigem)) {
-                        tasksHtml += `<div class="flex flex-row items-stretch justify-between w-full border border-gray-200 rounded bg-gray-50 overflow-hidden shadow-sm">`;
-
-                        tasksHtml += `<div class="flex flex-wrap p-1 gap-1.5 flex-grow">`;
-
-                        originTasks.forEach(t => {
-                            const isAtribuido = t.status !== 'pending';
-                            const corFundo = isAtribuido ? 'bg-indigo-100 border-indigo-300 text-indigo-900' : 'bg-white border-gray-300 text-gray-600 hover:bg-indigo-50 hover:border-indigo-300';
-
-                            // LÓGICA DO NOME: Primeiro Nome + Inicial do Último (ex: João S.)
-                            let freelaDisplay = "-";
-                            if (t.freelancer_name) {
-                                const parts = t.freelancer_name.trim().split(' ');
-                                if (parts.length > 1) {
-                                    freelaDisplay = `👤 ${parts[0]} ${parts[parts.length - 1].charAt(0)}.`;
-                                } else {
-                                    freelaDisplay = `👤 ${parts[0]}`;
-                                }
-                            }
-
-                            const iconeAtribuido = isAtribuido
-                                ? `<span class="text-[9px] font-normal truncate w-full text-center mt-0.5 opacity-80" title="${t.freelancer_name}">${freelaDisplay}</span>`
-                                : `<span class="text-[9px] font-normal w-full text-center mt-0.5 text-transparent select-none block h-3">-</span>`;
-
-                            const checkedAttr = tarefasSelecionadas.has(t.id) ? 'checked' : '';
-
-                            // REDUZIDO: w-[72px] (mais estreito), p-0.5 (menos margem interna)
-                            tasksHtml += `
-                                <label class="cursor-pointer border rounded p-0.5 text-[10px] font-bold transition flex flex-col items-center justify-center w-[72px] shrink-0 shadow-sm ${corFundo}">
-                                    <div class="flex items-center justify-center w-full">
-                                        <input type="checkbox" data-origin="${origem}" class="task-checkbox-${slice.id} h-3 w-3 text-indigo-600 rounded cursor-pointer mr-1" value="${t.id}" ${checkedAttr} onchange="atualizarStateCheckbox(${t.id}, this.checked)">
-                                        <span class="truncate text-center" title="${t.movement_name}">${t.movement_name}</span>
-                                    </div>
-                                    ${iconeAtribuido}
-                                </label>
-                            `;
+                const projetos = {};
+                videos.forEach(video => {
+                    const pName = video.project_name || "Sem Projeto";
+                    if (!projetos[pName]) projetos[pName] = [];
+                    if (video.slices) {
+                        video.slices.forEach(slice => {
+                            projetos[pName].push({ ...slice, filename: video.filename, videoId: video.id });
                         });
-                        tasksHtml += `</div>`;
+                    }
+                });
 
-                        const safeOrigem = origem.replace(/'/g, "\\'");
-                        const toggleId = `toggle_${slice.id}_${safeOrigem}`;
-                        const toggleChecked = togglesSelecionados.has(toggleId) ? 'checked' : '';
+                let html = '';
+                for (const [pName, fatias] of Object.entries(projetos)) {
+                    fatias.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+                    const safeId = pName.replace(/[^a-zA-Z0-9]/g, '_');
 
-                        tasksHtml += `
-                            <div class="flex items-center justify-center bg-gray-200 border-l border-gray-300 px-3 min-w-[70px] transition">
-                                <label class="cursor-pointer flex items-center justify-center w-full h-full text-xs font-bold text-gray-700 hover:text-indigo-800">
-                                    <input type="checkbox" id="${toggleId}" ${toggleChecked} onchange="toggleOrigemLinha(${slice.id}, '${safeOrigem}', this.checked); atualizarStateToggle(this.id, this.checked)" class="h-4 w-4 text-indigo-600 rounded cursor-pointer mr-1">
-                                    ${origem} ➔
-                                </label>
+                    if (!projetosJaVistos.has(safeId)) { 
+                        projetosColapsados.add(safeId); 
+                        projetosJaVistos.add(safeId); 
+                    }
+                    const isColapsado = projetosColapsados.has(safeId);
+                    const displayClass = isColapsado ? 'hidden' : '';
+                    const icone = isColapsado ? '▶' : '▼';
+
+                    let slicesHtml = '<div class="divide-y divide-gray-200">';
+
+                    fatias.forEach(slice => {
+                        const tasksPorOrigem = {};
+                        if (slice.tasks) {
+                            slice.tasks.forEach(t => {
+                                const origem = (t.movement_name || "Movimento").split(' ➔ ')[0];
+                                if (!tasksPorOrigem[origem]) tasksPorOrigem[origem] = [];
+                                tasksPorOrigem[origem].push(t);
+                            });
+                        }
+
+                        let tasksHtml = '<div class="flex flex-col gap-1.5 mt-2 w-full">';
+
+                        for (const [origem, originTasks] of Object.entries(tasksPorOrigem)) {
+                            tasksHtml += `<div class="flex flex-row items-stretch justify-between w-full border border-gray-200 rounded bg-gray-50 overflow-hidden shadow-sm">`;
+                            tasksHtml += `<div class="flex flex-wrap p-1 gap-1.5 flex-grow">`;
+
+                            originTasks.forEach(t => {
+                                // Lógica de Atribuição (Agora permitindo clique!)
+                                const isAtribuido = (t.freelancer_name && t.freelancer_name.trim() !== "") || (t.status !== 'pending' && t.status !== 'SliceStatus.pending');
+                                const isAssignedStr = isAtribuido ? "true" : "false";
+                                
+                                // Se já for atribuído, fica roxo. Se passar o mouse, ele avisa com borda vermelha que será realocado
+                                const corFundo = isAtribuido 
+                                    ? 'bg-indigo-100 border-indigo-300 text-indigo-900 opacity-60 hover:bg-red-50 hover:border-red-400' 
+                                    : 'bg-white border-gray-300 text-gray-600 hover:bg-indigo-50 hover:border-indigo-300';
+                                
+                                let freelaDisplay = "-";
+                                if (t.freelancer_name) {
+                                    const parts = t.freelancer_name.trim().split(' ');
+                                    freelaDisplay = parts.length > 1 ? `👤 ${parts[0]} ${parts[parts.length - 1].charAt(0)}.` : `👤 ${parts[0]}`;
+                                }
+
+                                const iconeAtribuido = isAtribuido
+                                    ? `<span class="text-[9px] font-normal truncate w-full text-center mt-0.5" title="${t.freelancer_name}">${freelaDisplay}</span>`
+                                    : `<span class="text-[9px] font-normal w-full text-center mt-0.5 text-transparent select-none block h-3">-</span>`;
+
+                                const checkedAttr = tarefasSelecionadas.has(t.id) ? 'checked' : '';
+
+                                tasksHtml += `
+                                    <label class="cursor-pointer border rounded p-0.5 text-[10px] font-bold transition flex flex-col items-center justify-center w-[72px] shrink-0 shadow-sm ${corFundo}">
+                                        <div class="flex items-center justify-center w-full">
+                                            <input type="checkbox" data-project="${safeId}" data-video="${slice.videoId}" data-origin="${origem}" data-assigned="${isAssignedStr}" data-freela="${t.freelancer_name || ''}" class="task-checkbox-${slice.id} h-3 w-3 text-indigo-600 rounded mr-1 cursor-pointer" value="${t.id}" ${checkedAttr} onchange="tratarSelecaoTarefa(this, ${t.id})">
+                                            <span class="truncate text-center" title="${t.movement_name}">${t.movement_name}</span>
+                                        </div>
+                                        ${iconeAtribuido}
+                                    </label>
+                                `;
+                            });
+                            tasksHtml += `</div>`; // Fim dos botões roxos
+
+                            // Lógica de selecionar a linha toda (Origem)
+                            const safeOrigem = origem.replace(/'/g, "\\'");
+                            const toggleId = `toggle_${slice.id}_${safeOrigem}`;
+                            const toggleChecked = togglesSelecionados.has(toggleId) ? 'checked' : '';
+
+                            tasksHtml += `
+                                <div class="flex items-center justify-center bg-gray-200 border-l border-gray-300 px-3 min-w-[70px] transition">
+                                    <label class="cursor-pointer flex items-center justify-center w-full h-full text-xs font-bold text-gray-700 hover:text-indigo-800">
+                                        <input type="checkbox" id="${toggleId}" ${toggleChecked} onchange="toggleOrigemLinha(${slice.id}, '${safeOrigem}', this.checked); atualizarStateToggle(this.id, this.checked)" class="h-4 w-4 text-indigo-600 rounded cursor-pointer mr-1">
+                                        ${origem} ➔
+                                    </label>
+                                </div>
+                            `;
+                            tasksHtml += `</div>`; 
+                        }
+                        tasksHtml += '</div>';
+
+                        const tempoCorte = `${formatarTempo(slice.start_time || 0)} a ${formatarTempo(slice.end_time || 0)}`;
+                        let textoAmarelo = (!slice.name || slice.name === "Vídeo Completo" || slice.name.trim() === "") ? tempoCorte : slice.name;
+
+                        // 🔴 Cabeçalho da Fatia com o CHECKBOX MESTRE
+                        slicesHtml += `
+                            <div class="p-3 hover:bg-white transition flex flex-col gap-2 border-b border-gray-100 last:border-0">
+                                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center pb-2 gap-3">
+                                    <div class="flex items-center gap-2 flex-wrap min-w-0">
+                                        
+                                        <input type="checkbox" id="toggle_video_${slice.videoId}" onchange="toggleVideoInteiro(${slice.videoId}, this.checked)" class="h-4 w-4 text-indigo-600 rounded cursor-pointer transition shadow-sm mr-1" title="Selecionar todos os movimentos livres deste vídeo">
+                                        
+                                        <span class="text-sm font-bold text-gray-800 bg-yellow-100 px-2 py-0.5 rounded border border-yellow-300 shadow-sm shrink-0">🕒 ${textoAmarelo}</span>
+                                        <span class="text-xs text-gray-500 font-mono truncate max-w-[150px] md:max-w-[250px] lg:max-w-[400px]">📁 ${slice.filename}</span>
+                                    </div>
+                                    <button onclick="reverterVideo(${slice.videoId})" class="bg-red-50 hover:bg-red-500 text-red-600 hover:text-white border border-red-200 hover:border-red-500 px-2 py-0.5 rounded text-[10px] font-bold transition-colors shadow-sm shrink-0 flex items-center">
+                                        ↩️ Devolver para Staging
+                                    </button>
+                                </div>
+                                ${tasksHtml}
                             </div>
                         `;
-                        tasksHtml += `</div>`;
-                    }
-                    tasksHtml += '</div>';
+                    });
 
-                    // LÓGICA INFALÍVEL DA HORA
-                    const tempoCorte = `${formatarTempo(slice.start_time)} a ${formatarTempo(slice.end_time)}`;
-                    let textoAmarelo = slice.name;
-                    // Se o banco de dados não enviou a hora real, ou se o texto for genérico, usamos a hora do corte:
-                    if (!textoAmarelo || textoAmarelo === "Vídeo Completo" || textoAmarelo.trim() === "") {
-                        textoAmarelo = tempoCorte;
-                    }
+                    slicesHtml += '</div>';
 
-                    const fSelected = freelasSelecionados[slice.id] || "";
-                    const fOptions = freelancersGlobais.map(f => `<option value="${f.id}" ${f.id == fSelected ? 'selected' : ''}>${f.name}</option>`).join('');
-
-                    slicesHtml += `
-                        <div class="p-3 hover:bg-white transition flex flex-col gap-2">
-                            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border-b border-gray-100 pb-3 gap-3">
+                    // O Card Principal do Projeto
+                    // 🔴 O CARD PRINCIPAL DA PASTA (PROJETO/PONTO) AGORA TEM O CHECKBOX MESTRE
+                    html += `
+                        <div class="mb-4 bg-white border border-gray-300 rounded-lg shadow-sm">
+                            <div class="bg-gray-800 hover:bg-gray-700 cursor-pointer px-3 py-2 text-white font-bold flex justify-between items-center transition rounded-t-lg" onclick="toggleProjeto('${safeId}')">
                                 
-                                <div class="flex items-center gap-2 flex-wrap min-w-0">
-                                    <span class="text-sm font-bold text-gray-800 bg-yellow-100 px-2 py-0.5 rounded border border-yellow-300 shadow-sm shrink-0" title="Hora Nominal">
-                                        🕒 ${textoAmarelo}
-                                    </span>
-                                    <span class="text-xs text-gray-500 font-mono truncate max-w-[150px] md:max-w-[250px] lg:max-w-[400px]" title="Arquivo Original">
-                                        📁 ${slice.filename}
-                                    </span>
-                                    <button onclick="reverterVideo(${slice.videoId})" class="bg-red-50 hover:bg-red-500 text-red-600 hover:text-white border border-red-200 hover:border-red-500 px-2 py-0.5 rounded text-[10px] font-bold transition-colors shadow-sm shrink-0 flex items-center" title="Devolver Vídeo para Staging">
-                                        ↩️ Reverter
-                                    </button>
+                                <div class="flex items-center gap-3">
+                                    <input type="checkbox" id="toggle_project_${safeId}" onclick="event.stopPropagation()" onchange="toggleProjetoInteiro('${safeId}', this.checked)" class="h-4 w-4 text-indigo-500 rounded cursor-pointer transition shadow-sm" title="Selecionar TODOS os movimentos de TODOS os vídeos deste local">
+                                    <span class="text-sm">📁 ${pName}</span>
                                 </div>
                                 
-                                <div class="flex items-center gap-2 shrink-0 bg-gray-50 p-1.5 rounded border shadow-sm w-full lg:w-auto justify-end">
-                                    <select id="select_freela_${slice.id}" onchange="freelasSelecionados[${slice.id}] = this.value" class="border-none bg-transparent text-xs p-1 outline-none w-36 cursor-pointer font-semibold text-gray-700 focus:ring-0">
-                                        <option value="">👤 Selecionar Freela...</option>
-                                        ${fOptions}
-                                    </select>
-                                    <button onclick="atribuirLote(${slice.id})" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-xs font-bold transition shadow-sm">
-                                        Atribuir Selecionados
-                                    </button>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-[10px] bg-indigo-500 px-2 py-0.5 rounded shadow">${fatias.length} Fatias</span>
+                                    <span id="icon_${safeId}" class="text-gray-300 text-xs">${icone}</span>
                                 </div>
                                 
                             </div>
-                            
-                            ${tasksHtml}
+                            <div id="content_${safeId}" class="p-0 ${displayClass} bg-white rounded-b-lg">
+                                ${slicesHtml}
+                            </div>
                         </div>
                     `;
-                });
-
-                slicesHtml += '</div>';
-
-                html += `
-                    <div class="mb-4 bg-white border border-gray-300 rounded-lg shadow-sm">
-                        <div class="bg-gray-800 hover:bg-gray-700 cursor-pointer px-3 py-2 text-white font-bold flex justify-between items-center transition rounded-t-lg" onclick="toggleProjeto('${safeId}')">
-                            <span class="text-sm">📁 ${pName}</span>
-                            <div class="flex items-center gap-3">
-                                <span class="text-[10px] bg-indigo-500 px-2 py-0.5 rounded shadow">${fatias.length} Fatias de Tempo</span>
-                                <span id="icon_${safeId}" class="text-gray-300 text-xs">${icone}</span>
-                            </div>
-                        </div>
-                        <div id="content_${safeId}" class="p-0 ${displayClass} bg-white rounded-b-lg">
-                            ${slicesHtml}
-                        </div>
-                    </div>
-                `;
+                }
+                
+                container.innerHTML = html;
+                console.log("✅ Matriz desenhada com sucesso na tela!");
+                
+            } catch (err) {
+                // 🔴 Se o Javascript falhar, ele pinta a tela de vermelho com o erro exato!
+                console.error("🔥 ERRO FATAL NA RENDERIZAÇÃO:", err);
+                document.getElementById('containerVideos').innerHTML = `<div class="text-center py-10 bg-red-50 rounded border border-red-200"><p class="text-red-600 font-bold mb-2">Erro ao desenhar tela!</p><p class="text-sm text-red-500 font-mono">${err.message}</p></div>`;
             }
-            container.innerHTML = html;
-        }
-
-        function toggleOrigemLinha(sliceId, origem, isChecked) {
-            const checkboxes = document.querySelectorAll(`.task-checkbox-${sliceId}[data-origin="${origem}"]`);
-            checkboxes.forEach(cb => {
-                cb.checked = isChecked;
-                atualizarStateCheckbox(parseInt(cb.value), isChecked);
-            });
         }
 
         async function cadastrarFreela() {
@@ -296,48 +367,70 @@
             else { const err = await response.json(); alert(err.detail || "Erro ao cadastrar."); }
         }
 
-        async function atribuirLote(sliceId) {
-            const select = document.getElementById(`select_freela_${sliceId}`);
-            const userId = select.value;
-            if (!userId) return alert("Selecione um freelancer na lista!");
+        // ==========================================
+        // LÓGICA DE CRIAÇÃO DO PACOTE DE TRABALHO
+        // ==========================================
+        async function criarPacote() {
+            const packageName = document.getElementById('packageName').value.trim();
+            const freelaId = document.getElementById('globalFreelaSelect').value;
 
-            const checkboxes = document.querySelectorAll(`.task-checkbox-${sliceId}:checked`);
-            if (checkboxes.length === 0) return alert("Marque pelo menos um Movimento para atribuir!");
+            if (tarefasSelecionadas.size === 0) return alert("Você precisa selecionar pelo menos um movimento marcando as caixas abaixo.");
+            
+            // 🔴 A LINHA DE VALIDAÇÃO DO NOME FOI REMOVIDA DAQUI!
+            
+            if (!freelaId) return alert("Por favor, selecione um Freelancer.");
 
-            const taskIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            const taskIds = Array.from(tarefasSelecionadas);
 
-            const response = await fetch('/tasks/assign_bulk', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task_ids: taskIds, user_id: parseInt(userId) })
-            });
+            const payload = {
+                name: packageName, // Agora pode ir vazio, o backend resolve!
+                freelancer_id: parseInt(freelaId),
+                task_ids: taskIds
+            };
 
-            if (response.ok) {
-                // Limpeza de memórias para aquela fatia
-                taskIds.forEach(id => tarefasSelecionadas.delete(id));
-                togglesSelecionados.forEach(tid => {
-                    if (tid.startsWith(`toggle_${sliceId}_`)) togglesSelecionados.delete(tid);
+            const btn = document.getElementById('btnCriarPacote');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Atribuindo...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/admin/work-packages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
-                freelasSelecionados[sliceId] = "";
 
-                carregarDados();
-            } else { alert("Erro ao atribuir tarefas."); }
-        }
-
-        async function reverterVideo(videoId) {
-            if (!confirm("⚠️ Tem certeza que deseja devolver este vídeo para o Staging? Todas as tarefas e fatias atuais serão apagadas e os freelancers perderão o acesso.")) return;
-
-            const response = await fetch(`/videos/${videoId}/revert`, { method: 'PATCH' });
-
-            if (response.ok) {
-                carregarDados(); // Recarrega a tela de alocação (o vídeo vai sumir daqui)
-            } else {
-                alert("Erro ao reverter o vídeo.");
+                if (response.ok) {
+                    const resData = await response.json();
+                    // Mostra a mensagem inteligente vinda do backend (Merge ou Novo)
+                    alert(`✅ ${resData.message}`); 
+                    
+                    document.getElementById('packageName').value = '';
+                    document.getElementById('globalFreelaSelect').value = '';
+                    tarefasSelecionadas.clear();
+                    togglesSelecionados.clear();
+                    carregarDados();
+                } else { 
+                    const err = await response.json();
+                    alert("Erro ao atribuir lote: " + (err.detail || "Falha no servidor.")); 
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Falha de conexão com o servidor.");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = `Criar e Atribuir (${tarefasSelecionadas.size})`;
             }
+        }
+        
+        async function reverterVideo(videoId) {
+            if (!confirm("⚠️ Tem certeza que deseja devolver este vídeo para o Staging? Todas as tarefas e fatias atuais serão apagadas.")) return;
+            const response = await fetch(`/videos/${videoId}/revert`, { method: 'PATCH' });
+            if (response.ok) carregarDados(); 
+            else alert("Erro ao reverter o vídeo.");
         }
 
         document.addEventListener('DOMContentLoaded', () => { carregarDados(); setInterval(carregarDados, 10000); });
     </script>
 </body>
-
 </html>
