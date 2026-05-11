@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ContaVias Server 2.0{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Pequeno ajuste para a barra de rolagem não ficar feia no Windows */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-gray-50 font-sans h-screen flex overflow-hidden text-gray-800">
+
+    <aside class="w-64 bg-gray-900 text-gray-300 flex flex-col shrink-0 transition-all duration-300">
+        <div class="h-16 flex items-center px-6 border-b border-gray-800 shrink-0 bg-gray-950">
+            <span class="text-xl font-bold text-white tracking-wider flex items-center gap-2">
+                <span class="text-indigo-500">🛣️</span> ContaVias<span class="text-xs text-indigo-400 font-normal">2.0</span>
+            </span>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+            <a href="/admin/dashboard" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/dashboard' %}bg-indigo-600 text-white hover:bg-indigo-700{% endif %}">
+                <span class="text-lg opacity-80 group-hover:opacity-100">📊</span>
+                <span class="font-medium text-sm">Dashboard</span>
+            </a>
+            <a href="/admin/freelancers" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/freelancers' %}bg-indigo-600 text-white hover:bg-indigo-700{% endif %}">
+                <span class="text-lg opacity-80 group-hover:opacity-100">🧑‍💻</span>
+                <span class="font-medium text-sm">Equipe (Freelas)</span>
+            </a>
+
+            <div class="pt-4 pb-1">
+                <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-gray-500">Fluxo de Operação</p>
+            </div>
+
+            <a href="/admin/staging" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/staging' %}bg-gray-800 text-white border-l-2 border-indigo-500{% endif %}">
+                <span class="text-lg opacity-80 group-hover:opacity-100">📥</span>
+                <span class="font-medium text-sm">Staging (Entrada)</span>
+            </a>
+
+            <a href="/admin/allocation" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/allocation' %}bg-gray-800 text-white border-l-2 border-indigo-500{% endif %}">
+                <span class="text-lg opacity-80 group-hover:opacity-100">👥</span>
+                <span class="font-medium text-sm">Alocação & Matriz</span>
+            </a>
+
+            <a href="/admin/reports" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/reports' %}bg-gray-800 text-white border-l-2 border-indigo-500{% endif %}">
+                <span class="text-lg opacity-80 group-hover:opacity-100">📑</span>
+                <span class="font-medium text-sm">Relatórios</span>
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-gray-800 text-xs text-gray-500 flex items-center justify-between">
+            <span>Admin Staff</span>
+            <button class="hover:text-white transition" title="Sair do sistema">🚪</button>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden bg-gray-50">
+        
+        {% block topbar %}
+        <header class="h-16 bg-white border-b border-gray-200 flex items-center px-8 shrink-0 shadow-sm">
+            <h1 class="text-xl font-bold text-gray-800">{% block page_title %}Página Inicial{% endblock %}</h1>
+        </header>
+        {% endblock %}
+
+        <div class="flex-1 overflow-y-auto p-8">
+            {% block content %}
+            {% endblock %}
+        </div>
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
