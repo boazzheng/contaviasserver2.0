@@ -6,72 +6,144 @@
     <title>{% block title %}ContaVias Server 2.0{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Pequeno ajuste para a barra de rolagem não ficar feia no Windows */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; }
     </style>
     {% block head %}{% endblock %}
 </head>
+<style>
+    @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.85; transform: scale(1.02); }
+}
+.animate-spin-subtle {
+    animation: pulse-subtle 2s infinite ease-in-out;
+}
+</style>
 <body class="bg-gray-50 font-sans h-screen flex overflow-hidden text-gray-800">
 
-    <aside class="w-64 bg-gray-900 text-gray-300 flex flex-col shrink-0 transition-all duration-300">
-        <div class="h-16 flex items-center px-6 border-b border-gray-800 shrink-0 bg-gray-950">
-            <span class="text-xl font-bold text-white tracking-wider flex items-center gap-2">
+    <aside id="main-sidebar" class="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 transition-all duration-300 shadow-xl z-20">
+        <div class="h-16 flex items-center px-6 border-b border-slate-800 shrink-0 bg-slate-950">
+            <span class="text-xl font-black text-white tracking-wider flex items-center gap-2">
                 <span class="text-indigo-500">🛣️</span> ContaVias<span class="text-xs text-indigo-400 font-normal">2.0</span>
             </span>
         </div>
 
         <nav class="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-            <a href="/admin/dashboard" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/dashboard' %}bg-indigo-600 text-white hover:bg-indigo-700{% endif %}">
+            <a href="/admin/dashboard" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-800 hover:text-white transition group {% if request.url.path == '/admin/dashboard' %}bg-indigo-600 text-white hover:bg-indigo-700{% endif %}">
                 <span class="text-lg opacity-80 group-hover:opacity-100">📊</span>
                 <span class="font-medium text-sm">Dashboard</span>
             </a>
-            <a href="/admin/freelancers" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/freelancers' %}bg-indigo-600 text-white hover:bg-indigo-700{% endif %}">
+
+            <div class="pt-5 pb-2">
+                <p class="px-3 text-[10px] font-black uppercase tracking-wider text-slate-500">Fluxo de Operação</p>
+            </div>
+
+            <a href="/admin/staging" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-slate-800 hover:text-white transition group {% if request.url.path == '/admin/staging' %}bg-slate-800 text-white border-l-2 border-indigo-500{% endif %}">
+                <div class="flex items-center gap-3">
+                    <span class="text-lg opacity-80 group-hover:opacity-100">📥</span>
+                    <span class="font-medium text-sm">Staging (Entrada)</span>
+                </div>
+                <span id="badge-staging" class="hidden bg-indigo-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded min-w-[20px] text-center shadow-sm">0</span>
+            </a>
+
+            <a href="/admin/allocation" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-slate-800 hover:text-white transition group {% if request.url.path == '/admin/allocation' %}bg-slate-800 text-white border-l-2 border-indigo-500{% endif %}">
+                <div class="flex items-center gap-3">
+                    <span class="text-lg opacity-80 group-hover:opacity-100">📦</span>
+                    <span class="font-medium text-sm">Alocação Freelas</span>
+                </div>
+                <span id="badge-allocation" class="hidden bg-indigo-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded min-w-[20px] text-center shadow-sm">0</span>
+            </a>
+
+            <a href="/admin/audit" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-slate-800 hover:text-white transition group {% if request.url.path == '/admin/audit' %}bg-slate-800 text-white border-l-2 border-indigo-500{% endif %}">
+                <div class="flex items-center gap-3">
+                    <span class="text-lg opacity-80 group-hover:opacity-100">⚖️</span>
+                    <span class="font-medium text-sm">Auditoria IA</span>
+                </div>
+                <span id="badge-audit" class="hidden bg-amber-500 text-amber-950 text-[10px] font-black px-1.5 py-0.5 rounded min-w-[20px] text-center shadow-sm">0</span>
+            </a>
+
+            <a href="/admin/reports" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-800 hover:text-white transition group {% if request.url.path == '/admin/reports' %}bg-slate-800 text-white border-l-2 border-indigo-500{% endif %}">
+                <span class="text-lg opacity-80 group-hover:opacity-100">📑</span>
+                <span class="font-medium text-sm">Relatórios Finais</span>
+            </a>
+
+            <div class="pt-5 pb-2">
+                <p class="px-3 text-[10px] font-black uppercase tracking-wider text-slate-500">Administração</p>
+            </div>
+
+            <a href="/admin/freelancers" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-800 hover:text-white transition group {% if request.url.path == '/admin/freelancers' %}bg-slate-800 text-white border-l-2 border-indigo-500{% endif %}">
                 <span class="text-lg opacity-80 group-hover:opacity-100">🧑‍💻</span>
                 <span class="font-medium text-sm">Equipe (Freelas)</span>
             </a>
-
-            <div class="pt-4 pb-1">
-                <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-gray-500">Fluxo de Operação</p>
-            </div>
-
-            <a href="/admin/staging" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/staging' %}bg-gray-800 text-white border-l-2 border-indigo-500{% endif %}">
-                <span class="text-lg opacity-80 group-hover:opacity-100">📥</span>
-                <span class="font-medium text-sm">Staging (Entrada)</span>
-            </a>
-
-            <a href="/admin/allocation" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/allocation' %}bg-gray-800 text-white border-l-2 border-indigo-500{% endif %}">
-                <span class="text-lg opacity-80 group-hover:opacity-100">👥</span>
-                <span class="font-medium text-sm">Alocação & Matriz</span>
-            </a>
-
-            <a href="/admin/reports" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 hover:text-white transition group {% if request.url.path == '/admin/reports' %}bg-gray-800 text-white border-l-2 border-indigo-500{% endif %}">
-                <span class="text-lg opacity-80 group-hover:opacity-100">📑</span>
-                <span class="font-medium text-sm">Relatórios</span>
-            </a>
         </nav>
 
-        <div class="p-4 border-t border-gray-800 text-xs text-gray-500 flex items-center justify-between">
-            <span>Admin Staff</span>
+        <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center justify-between">
+            <span class="font-bold">Admin Staff</span>
             <button class="hover:text-white transition" title="Sair do sistema">🚪</button>
         </div>
     </aside>
 
-    <main class="flex-1 flex flex-col min-w-0 overflow-hidden bg-gray-50">
-        
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
         {% block topbar %}
-        <header class="h-16 bg-white border-b border-gray-200 flex items-center px-8 shrink-0 shadow-sm">
-            <h1 class="text-xl font-bold text-gray-800">{% block page_title %}Página Inicial{% endblock %}</h1>
+        <header class="h-16 bg-white border-b border-gray-200 flex items-center px-6 shrink-0 shadow-sm z-10 gap-4">
+            <button onclick="toggleMainSidebar()" class="text-slate-500 hover:text-indigo-600 transition focus:outline-none p-1.5 rounded-md hover:bg-slate-100">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+            <h1 class="text-xl font-black text-slate-800 tracking-tight">{% block page_title %}Página Inicial{% endblock %}</h1>
         </header>
         {% endblock %}
 
-        <div class="flex-1 overflow-y-auto p-8">
-            {% block content %}
-            {% endblock %}
+        <div class="flex-1 overflow-y-auto p-8 relative">
+            {% block content %}{% endblock %}
         </div>
     </main>
+
+    <script>
+        async function atualizarBadgesSidebar() {
+            try {
+                const res = await fetch('/api/admin/sidebar-stats');
+                if (!res.ok) return;
+                const stats = await res.json();
+
+                const mapeamento = {
+                    'badge-staging': stats.staging,
+                    'badge-allocation': stats.allocation,
+                    'badge-audit': stats.audit
+                };
+
+                for (const [id, valor] of Object.entries(mapeamento)) {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        if (valor > 0) {
+                            el.innerText = valor > 99 ? '99+' : valor;
+                            el.classList.remove('hidden');
+                        } else {
+                            el.classList.add('hidden');
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Silêncio no erro de badges p/ não poluir console", e);
+            }
+        }
+
+        function toggleMainSidebar() {
+            const sidebar = document.getElementById('main-sidebar');
+            sidebar.classList.toggle('-ml-64');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            atualizarBadgesSidebar();
+            // Atualiza de 30 em 30 segundos
+            setInterval(atualizarBadgesSidebar, 30000);
+        });
+    </script>
 
     {% block scripts %}{% endblock %}
 </body>

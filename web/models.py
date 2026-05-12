@@ -1,7 +1,7 @@
 import enum
 import json
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, ForeignKey, Enum, DateTime, Text, Float
+from sqlalchemy import JSON, Column, Integer, String, ForeignKey, Enum, DateTime, Text, Float, Boolean
 from sqlalchemy.orm import relationship
 
 # Importe a Base e o engine do seu arquivo database.py
@@ -57,6 +57,8 @@ class Project(Base):
     
     # RELAÇÃO COM MOVIMENTOS:
     movements = relationship("Movement", back_populates="project", cascade="all, delete-orphan")
+    status = Column(String, default="processing")
+    audit_selections = Column(JSON, default=dict)
 
 class WorkPackage(Base):
     __tablename__ = 'work_packages'
@@ -154,9 +156,22 @@ class CountRecord(Base):
     task_id = Column(Integer, ForeignKey("movement_tasks.id", ondelete="CASCADE"))
     vehicle_class = Column(String)  # ex: "carro", "moto", "onibus", "caminhao"
     video_time = Column(Float)      # O segundo exato do vídeo (ex: 125.4)
-    
+    is_approved = Column(Boolean, default=False)
     # Relação reversa (opcional, mas boa prática)
     task = relationship("MovementTask", backref="records")
+
+class ConsolidatedReport(Base):
+    __tablename__ = "consolidated_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
+    movement_name = Column(String)
+    interval = Column(String)
+    category = Column(String)
+    count = Column(Integer, default=0)
+    source = Column(String) # Guarda se veio do "H" ou "IA" para referência futura
+
+    project = relationship("Project")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

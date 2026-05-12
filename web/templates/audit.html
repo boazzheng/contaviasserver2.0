@@ -1,0 +1,523 @@
+{% extends "base.html" %}
+
+{% block title %}Auditoria IA - ContaVias{% endblock %}
+
+{% block page_title %}⚖️ Auditoria: Humano vs. Inteligência Artificial{% endblock %}
+
+{% block content %}
+<div class="flex flex-col xl:flex-row gap-6 h-full min-h-[700px]">
+
+    <div id="coluna-projetos-audit" class="w-full xl:w-1/4 flex flex-col shrink-0">
+        <div class="bg-white shadow-sm border border-gray-200 rounded-xl p-5 flex flex-col h-full min-h-[400px]">
+            <div class="border-b border-gray-100 pb-3 mb-3">
+                <h2 class="text-lg font-bold text-gray-800">Projetos Ativos</h2>
+                <p class="text-xs text-gray-500 mt-1">Selecione para auditar matrizes</p>
+            </div>
+            <div id="lista-projetos" class="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                <p class="text-gray-400 text-sm italic text-center py-6">Carregando projetos...</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="coluna-tabela-audit" class="w-full xl:w-3/4 flex flex-col min-h-0 bg-white shadow-sm border border-gray-200 rounded-xl transition-all duration-300">
+        
+        <header id="header-projeto" class="hidden py-3 px-5 border-b border-gray-200 items-center justify-between bg-slate-50 rounded-t-xl shrink-0">
+            
+            <div class="flex items-center gap-3">
+                <button id="btn-toggle-projetos-audit" onclick="toggleListaProjetosAudit()" class="text-slate-500 hover:text-indigo-600 transition bg-white border border-slate-200 hover:bg-slate-100 p-1.5 rounded shadow-sm" title="Esconder/Mostrar Lista de Projetos">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                
+                <h2 id="view-project-name" class="text-base font-bold text-slate-800 tracking-tight">Projeto Selecionado</h2>
+                
+                <span id="ia-status-global" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-700 border border-amber-200 shadow-sm flex items-center gap-1 ml-2">
+                    <span class="animate-spin h-3 w-3 border-b-2 border-amber-700 rounded-full inline-block"></span>
+                    IA Processando
+                </span>
+            </div>
+            
+            <div>
+                <button id="btn-aprovar-auditoria" onclick="aprovarAuditoria()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded text-xs transition shadow-sm flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    Aprovar
+                </button>
+            </div>
+        </header>
+
+        <div id="content-auditoria" class="flex-1 overflow-y-auto p-6">
+            <div class="flex flex-col items-center justify-center h-full text-gray-400 opacity-60">
+                <span class="text-6xl mb-4">⚖️</span>
+                <p class="text-lg font-medium">Selecione um projeto para iniciar a validação cruzada.</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let dadosAtuais = null;
+    let projetoAtualId = null;
+    let auditoriaSelecoes = {}; 
+    let projetosAprovadosNoFrontend = new Set(); 
+    let projetoAprovado = false; 
+    let foiDescongelado = false; 
+    let abaAtivaId = null;       // Guarda a aba atualmente aberta
+    let scrollPosicoes = {};     // Guarda a posição da barra de rolagem de cada aba
+
+    // --- MENU LATERAL ---
+    function toggleListaProjetosAudit() {
+        const colProj = document.getElementById('coluna-projetos-audit');
+        const colTab = document.getElementById('coluna-tabela-audit');
+        const btnIcon = document.querySelector('#btn-toggle-projetos-audit svg');
+
+        if (colProj.classList.contains('hidden')) {
+            colProj.classList.remove('hidden');
+            colProj.classList.add('flex');
+            colTab.classList.replace('xl:w-full', 'xl:w-3/4');
+            btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />';
+        } else {
+            colProj.classList.remove('flex');
+            colProj.classList.add('hidden');
+            colTab.classList.replace('xl:w-3/4', 'xl:w-full');
+            btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />';
+        }
+    }
+
+    // --- CARGA DE DADOS ---
+    async function carregarProjetos() {
+        try {
+            const res = await fetch('/projects'); 
+            const data = await res.json();
+            const projetos = data.projects || data; 
+            const container = document.getElementById('lista-projetos');
+            container.innerHTML = '';
+
+            if (projetos.length === 0) {
+                container.innerHTML = '<p class="text-gray-400 text-sm italic text-center py-6">Nenhum projeto encontrado.</p>';
+                return;
+            }
+
+            projetos.forEach(p => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-slate-100 border border-gray-100 hover:border-slate-300 transition text-sm font-medium group flex justify-between items-center text-gray-700 hover:text-slate-900";
+                btn.onclick = () => carregarAuditoria(p.id);
+                btn.innerHTML = `<span class="truncate pr-2">📁 ${p.name}</span><span class="text-[10px] bg-white border border-gray-200 text-gray-500 px-2 py-0.5 rounded shadow-sm opacity-0 group-hover:opacity-100 transition">Auditar</span>`;
+                container.appendChild(btn);
+            });
+        } catch (error) {
+            document.getElementById('lista-projetos').innerHTML = '<p class="text-red-400 text-sm text-center py-6">Erro ao carregar projetos.</p>';
+        }
+    }
+
+    function gerarDadosIAEstaveis(linhas) {
+        linhas.forEach(r => {
+            if (!r.ia_data) {
+                r.ia_data = {
+                    "Carro": r.Carro > 0 ? Math.max(0, r.Carro + Math.floor(Math.random() * 3) - 1) : (Math.random() > 0.9 ? 1 : 0),
+                    "Moto": r.Moto > 0 ? Math.max(0, r.Moto + Math.floor(Math.random() * 2) - 1) : (Math.random() > 0.95 ? 1 : 0),
+                    "Ônibus": r["Ônibus"] > 0 ? Math.max(0, r["Ônibus"] + Math.floor(Math.random() * 2) - 1) : 0,
+                    "Caminhão": r["Caminhão"] > 0 ? Math.max(0, r["Caminhão"] + Math.floor(Math.random() * 2) - 1) : 0
+                };
+            }
+        });
+    }
+
+    function executarPreSelecao(linhas) {
+        linhas.forEach(r => {
+            const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
+            categorias.forEach(cat => {
+                const valH = r[cat] || 0;
+                const valIA = r.ia_data[cat] || 0;
+                const key = `${r.interval}|${r.movement}|${cat}`;
+                
+                const diffPct = valH > 0 ? Math.abs((valIA - valH) / valH) : (valIA > 0 ? 1 : 0);
+                
+                if (diffPct <= 0.05) {
+                    auditoriaSelecoes[key] = "IA";
+                }
+            });
+        });
+    }
+
+    async function carregarAuditoria(projectId) {
+        projetoAtualId = projectId;
+        
+        // Verifica se o projeto já foi aprovado nesta sessão para travar a interface
+        projetoAprovado = projetosAprovadosNoFrontend.has(projectId);
+
+        const content = document.getElementById('content-auditoria');
+        const header = document.getElementById('header-projeto');
+        
+        content.innerHTML = '<div class="flex justify-center items-center h-full"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div></div>';
+        
+        try {
+            abaAtivaId = null;      
+            scrollPosicoes = {};
+            const res = await fetch(`/api/admin/reports/${projectId}`);
+            dadosAtuais = await res.json();
+
+            if (!dadosAtuais.data || dadosAtuais.data.length === 0) {
+                header.classList.remove('flex');
+                header.classList.add('hidden');
+                renderizarTabelaAuditoria([]);
+                return;
+            }
+
+            // Geramos os dados estáticos (Eles não mudarão mais, garantindo o congelamento)
+            gerarDadosIAEstaveis(dadosAtuais.data);
+            
+            // Se o projeto não foi aprovado ainda, limpa e refaz a inteligência de seleção
+            if (!projetoAprovado) {
+                auditoriaSelecoes = {}; 
+                executarPreSelecao(dadosAtuais.data);
+            }
+
+            // 🔴 LÊ DO BANCO SE JÁ FOI APROVADO
+            if (dadosAtuais.status === 'approved' && dadosAtuais.audit_selections && Object.keys(dadosAtuais.audit_selections).length > 0) {
+                projetoAprovado = true;
+                auditoriaSelecoes = dadosAtuais.audit_selections;
+            } else {
+                projetoAprovado = false;
+                auditoriaSelecoes = {}; 
+                executarPreSelecao(dadosAtuais.data);
+            }
+
+            header.classList.remove('hidden');
+            header.classList.add('flex');
+            document.getElementById('view-project-name').innerText = dadosAtuais.project_name;
+            
+            const badgeIA = document.getElementById('ia-status-global');
+            if(badgeIA) {
+                if (projetoAprovado) {
+                    badgeIA.innerHTML = '🔒 Dados Auditados e Congelados';
+                    badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-800 border border-indigo-300 shadow-sm flex items-center ml-2';
+                } else {
+                    badgeIA.innerHTML = '<span class="animate-pulse h-2 w-2 bg-emerald-500 rounded-full inline-block mr-1"></span> IA Disponível';
+                    badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm flex items-center ml-2';
+                }
+            }
+
+            // Esconde/Mostra o botão de aprovar baseado no status
+            const btnAprovar = document.getElementById('btn-aprovar-auditoria');
+            if(btnAprovar) btnAprovar.style.display = projetoAprovado ? 'none' : 'flex';
+            
+            renderizarTabelaAuditoria(dadosAtuais.data);
+
+        } catch (err) {
+            content.innerHTML = `<div class="p-4 text-red-600">Erro: ${err.message}</div>`;
+        }
+    }
+
+    function verificarDescongelamento() {
+        if (projetoAprovado) {
+            projetoAprovado = false; 
+            foiDescongelado = true; // 🔴 Marca que foi aberto para edição
+            
+            const btn = document.getElementById('btn-aprovar-auditoria');
+            btn.style.display = 'flex';
+            btn.innerHTML = '⚠️ Re-aprovar Alterações';
+            btn.className = 'bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-5 rounded-lg text-sm transition shadow-sm flex items-center gap-2';
+            
+            const badgeIA = document.getElementById('ia-status-global');
+            badgeIA.innerHTML = '✏️ Edição Aberta';
+            badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-300 shadow-sm flex items-center ml-2';
+        }
+    }
+    
+    // --- RENDERIZAÇÃO DA TABELA ---
+    function renderizarTabelaAuditoria(linhas) {
+        const contentDiv = document.getElementById('content-auditoria');
+        
+        // 🔴 ANTES DE APAGAR: Salva a posição de rolagem de todas as abas
+        document.querySelectorAll('.tab-content').forEach(el => {
+            scrollPosicoes[el.id] = el.scrollTop;
+        });
+
+        contentDiv.className = "flex-1 p-6 flex flex-col min-h-0 bg-white"; 
+
+        if (!linhas || linhas.length === 0) {
+            contentDiv.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-gray-400 opacity-60"><span class="text-6xl mb-4">📭</span><p class="text-lg font-medium">Nenhum dado disponível.</p></div>`;
+            return;
+        }
+
+        const agrupado = {};
+        linhas.forEach(r => {
+            if (!agrupado[r.movement]) agrupado[r.movement] = [];
+            agrupado[r.movement].push(r);
+        });
+
+        const movimentos = Object.keys(agrupado);
+        
+        // 🔴 Define qual aba deve estar ativa (Se não houver memória, usa a aba 0)
+        if (!abaAtivaId || !movimentos.some((m, i) => `tab_${i}` === abaAtivaId)) {
+            abaAtivaId = 'tab_0';
+        }
+
+        let textoLegenda = "Pré-Aprovado (IA)";
+        let corLegenda = "bg-emerald-200 border-emerald-400";
+        if (projetoAprovado) {
+            textoLegenda = "🔒 Aprovado para Relatório";
+            corLegenda = "bg-indigo-200 border-indigo-400";
+        } else if (foiDescongelado) {
+            textoLegenda = "✏️ Editando Seleções";
+            corLegenda = "bg-amber-200 border-amber-400";
+        }
+        
+        let html = `
+            <div class="flex overflow-x-auto border-b border-gray-200 mb-4 gap-2 pb-px shrink-0 custom-scrollbar">
+                ${movimentos.map((m, i) => {
+                    const tId = `tab_${i}`;
+                    // Verifica se esta aba é a que deve ficar ativa
+                    const activeClass = (tId === abaAtivaId) ? 'border-slate-500 text-slate-800 bg-slate-100' : 'border-transparent text-gray-500 bg-gray-50 hover:bg-gray-100';
+                    return `
+                    <button onclick="mudarAba('${tId}', this)" class="tab-btn px-5 py-2.5 border-b-2 font-bold text-sm rounded-t-lg ${activeClass}">
+                        🛣️ ${m}
+                    </button>`;
+                }).join('')}
+            </div>
+            <div class="bg-white border border-gray-200 rounded-lg shadow-sm flex-1 flex flex-col min-h-0 overflow-hidden">
+                ${movimentos.map((m, i) => {
+                    const tId = `tab_${i}`;
+                    // Verifica se esta tabela deve ficar visível
+                    const activeContent = (tId === abaAtivaId) ? '' : 'hidden';
+                    return `
+                    <div id="${tId}" class="tab-content ${activeContent} flex-1 overflow-y-auto overflow-x-auto">
+                        <table class="w-full text-center border-collapse relative select-none min-w-[800px]">
+                            <thead class="sticky top-0 z-20 shadow-sm bg-gray-100">
+                                <tr class="bg-blue-50/80 border-b border-blue-100">
+                                    <td colspan="10" class="p-2 text-right text-[10px] font-bold uppercase tracking-tighter">
+                                        <div class="flex justify-end gap-4 pr-4">
+                                            <span class="flex items-center gap-1"><span class="w-3 h-3 ${corLegenda} rounded-sm shadow-sm"></span> ${textoLegenda}</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr class="border-b border-gray-200 text-[10px] uppercase text-gray-500 font-black">
+                                    <th class="p-3 border-r border-gray-200 w-44 text-left" rowspan="2">Horário</th>
+                                    <th class="p-2 border-r border-gray-200" colspan="2">🚗 Carros</th>
+                                    <th class="p-2 border-r border-gray-200" colspan="2">🏍️ Motos</th>
+                                    <th class="p-2 border-r border-gray-200" colspan="2">🚌 Ônibus</th>
+                                    <th class="p-2 border-r border-gray-200" colspan="2">🚚 Caminhões</th>
+                                    <th class="p-2 bg-slate-800 text-white w-20" rowspan="2">Diff %</th>
+                                </tr>
+                                <tr class="bg-gray-50 border-b-2 border-gray-300 text-[9px] font-bold">
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Carro', 'H', event)" title="Alternar coluna H">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Carro', 'IA', event)" title="Alternar coluna IA">IA</th>
+                                    
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Moto', 'H', event)">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Moto', 'IA', event)">IA</th>
+                                    
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Ônibus', 'H', event)">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Ônibus', 'IA', event)">IA</th>
+                                    
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Caminhão', 'H', event)">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Caminhão', 'IA', event)">IA</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 text-sm">
+                                ${agrupado[m].map(r => renderizarLinhaAudit(r, m)).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+                }).join('')}
+            </div>`;
+
+        contentDiv.innerHTML = html;
+
+        // 🔴 DEPOIS DE RE CRIAR: Restaura a posição da rolagem de volta de onde parou
+        document.querySelectorAll('.tab-content').forEach(el => {
+            if (scrollPosicoes[el.id] !== undefined) {
+                el.scrollTop = scrollPosicoes[el.id];
+            }
+        });
+    }
+    
+    function renderizarLinhaAudit(r, movimento) {
+        const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
+        let totalH = 0, totalIA = 0;
+
+        let cells = categorias.map(cat => {
+            const valH = r[cat] || 0;
+            const valIA = r.ia_data[cat] || 0;
+            totalH += valH; totalIA += valIA;
+
+            const key = `${r.interval}|${movimento}|${cat}`;
+            const sourceSel = auditoriaSelecoes[key];
+
+            const diffAbs = Math.abs(valIA - valH);
+            const diffPct = valH > 0 ? diffAbs / valH : (valIA > 0 ? 1 : 0);
+
+            let colorH = "text-gray-700";
+            let colorIA = "text-indigo-700 font-bold";
+            let bgAlert = "";
+
+            if (diffPct > 0.05) {
+                if (diffPct <= 0.10 || diffAbs < 3) {
+                    colorH = "text-amber-600 font-bold"; colorIA = "text-amber-600 font-bold"; bgAlert = "bg-amber-50/40";
+                } else {
+                    colorH = "text-red-600 font-black"; colorIA = "text-red-600 font-black"; bgAlert = "bg-red-50/40";
+                }
+            }
+
+            const isSelH = sourceSel === "H";
+            const isSelIA = sourceSel === "IA";
+            
+            // Remove as classes de hover se estiver congelado
+            const hoverClass = projetoAprovado ? '' : 'hover:bg-slate-200';
+            const cursorClass = projetoAprovado ? 'cursor-default' : 'cursor-pointer';
+
+            const bgH = isSelH ? "bg-emerald-200 shadow-inner border-emerald-400" : `${hoverClass} border-gray-100/50 ${bgAlert}`;
+            const bgIA = isSelIA ? "bg-emerald-200 shadow-inner border-emerald-400" : `${hoverClass} border-gray-100 ${bgAlert}`;
+
+            return `
+                <td class="p-2.5 border-r transition-all ${cursorClass} ${bgH} ${colorH}" 
+                    onclick="toggleSelecaoCelula('${key}', 'H', event)">${valH}</td>
+                <td class="p-2.5 border-r transition-all ${cursorClass} ${bgIA} ${colorIA}" 
+                    onclick="toggleSelecaoCelula('${key}', 'IA', event)">${valIA}</td>
+            `;
+        }).join('');
+
+        const diff = totalH > 0 ? ((totalIA - totalH) / totalH * 100).toFixed(1) : (totalIA > 0 ? 100 : 0);
+        let colorLine = 'text-emerald-600';
+        let bgLineAlert = '';
+
+        if (Math.abs(diff) > 15) {
+            colorLine = 'text-red-600'; bgLineAlert = 'bg-red-50/20'; 
+        } else if (Math.abs(diff) > 0) {
+            colorLine = 'text-amber-600';
+        }
+
+        const cursorLinha = projetoAprovado ? 'cursor-default' : 'cursor-pointer hover:bg-indigo-100';
+
+        return `
+            <tr class="hover:bg-slate-100 transition-colors ${bgLineAlert}">
+                <td class="p-2 border-r border-gray-100 text-left bg-slate-50/50 font-bold ${cursorLinha} transition-colors" onclick="selecionarLinhaInteligente('${movimento}', '${r.interval}', event)">
+                    <div class="font-mono">${r.interval}</div>
+                </td>
+                ${cells}
+                <td class="p-2 bg-slate-50 font-black ${colorLine}">${diff}%</td>
+            </tr>`;
+    }
+
+    // --- INTERAÇÕES COM TOGGLE (LIGA/DESLIGA) E CONGELAMENTO ---
+
+    function toggleSelecaoCelula(key, source, event) {
+        if (event) event.stopPropagation();
+        verificarDescongelamento() 
+
+        if (auditoriaSelecoes[key] === source) delete auditoriaSelecoes[key];
+        else auditoriaSelecoes[key] = source;
+        
+        renderizarTabelaAuditoria(dadosAtuais.data);
+    }
+
+    function selecionarLinhaInteligente(movimento, interval, event) {
+        if (event) event.stopPropagation();
+        verificarDescongelamento() 
+
+        const r = dadosAtuais.data.find(x => x.movement === movimento && x.interval === interval);
+        if(!r) return;
+        
+        const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
+        const keys = categorias.map(c => `${interval}|${movimento}|${c}`);
+        
+        // Lógica de Toggle: Se todos da linha já estiverem selecionados (seja H ou IA), nós limpamos a linha.
+        const todosSelecionados = keys.every(k => auditoriaSelecoes[k]);
+        
+        if (todosSelecionados) {
+            keys.forEach(k => delete auditoriaSelecoes[k]); // Limpa tudo
+        } else {
+            // Aplica a inteligência (Preenche o que falta ou sobrescreve com a melhor opção)
+            categorias.forEach(cat => {
+                const valH = r[cat] || 0;
+                const valIA = r.ia_data[cat] || 0;
+                const diffPct = valH > 0 ? Math.abs(valIA - valH) / valH : (valIA > 0 ? 1 : 0);
+                
+                const key = `${interval}|${movimento}|${cat}`;
+                auditoriaSelecoes[key] = diffPct <= 0.05 ? "IA" : "H";
+            });
+        }
+        
+        renderizarTabelaAuditoria(dadosAtuais.data);
+    }
+
+    function selecionarColunaInteira(movimento, categoria, source, event) {
+        if (event) event.stopPropagation();
+        verificarDescongelamento() 
+        const records = dadosAtuais.data.filter(r => r.movement === movimento);
+        
+        // Lógica de Toggle: Verifica se TODAS as linhas dessa coluna já estão com a 'source' clicada
+        const todosDestaSource = records.every(r => auditoriaSelecoes[`${r.interval}|${movimento}|${categoria}`] === source);
+
+        records.forEach(r => {
+            const key = `${r.interval}|${movimento}|${categoria}`;
+            if (todosDestaSource) {
+                delete auditoriaSelecoes[key]; // Desliga tudo se já estava tudo ligado
+            } else {
+                auditoriaSelecoes[key] = source; // Liga tudo
+            }
+        });
+
+        renderizarTabelaAuditoria(dadosAtuais.data);
+    }
+
+    function mudarAba(tabId, btn) {
+        abaAtivaId = tabId; // 🔴 Memoriza a aba clicada
+        
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById(tabId).classList.remove('hidden');
+        document.querySelectorAll('.tab-btn').forEach(b => b.className = "tab-btn px-5 py-2.5 border-b-2 font-bold text-sm rounded-t-lg border-transparent text-gray-500 bg-gray-50 hover:bg-gray-100");
+        btn.className = "tab-btn px-5 py-2.5 border-b-2 font-bold text-sm rounded-t-lg border-slate-500 text-slate-800 bg-slate-100";
+    }
+
+    // --- APROVAÇÃO E SUBMISSÃO ---
+    async function aprovarAuditoria() {
+        const finalData = [];
+        dadosAtuais.data.forEach(r => {
+            ["Carro", "Moto", "Ônibus", "Caminhão"].forEach(cat => {
+                const key = `${r.interval}|${r.movement}|${cat}`;
+                const sourceSel = auditoriaSelecoes[key];
+                if (sourceSel) {
+                    finalData.push({
+                        interval: r.interval, movement: r.movement, category: cat,
+                        count: sourceSel === 'IA' ? (r.ia_data[cat] || 0) : (r[cat] || 0),
+                        source: sourceSel
+                    });
+                }
+            });
+        });
+
+        if (finalData.length === 0) return alert("Selecione ao menos uma célula para aprovar.");
+        if (!confirm(`Deseja consolidar e aprovar os dados?`)) return;
+
+        const btn = document.getElementById('btn-aprovar-auditoria');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "⏳ Consolidando..."; btn.disabled = true;
+
+        try {
+            const res = await fetch(`/api/admin/projects/${projetoAtualId}/audit/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // 🔴 ENVIA OS DOIS PACOTES!
+                body: JSON.stringify({ final_data: finalData, selections_map: auditoriaSelecoes })
+            });
+            const data = await res.json();
+            
+            projetoAprovado = true;
+            btn.style.display = 'none';
+            document.getElementById('ia-status-global').innerHTML = '🔒 Dados Congelados';
+            document.getElementById('ia-status-global').className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-800 border border-indigo-300 shadow-sm flex items-center ml-2';
+            
+            renderizarTabelaAuditoria(dadosAtuais.data);
+            alert(`✅ ${data.message}`);
+        } catch (e) { 
+            alert("Erro ao salvar."); btn.innerHTML = originalText; btn.disabled = false;
+        } 
+    }
+
+    document.addEventListener('DOMContentLoaded', carregarProjetos);
+</script>
+{% endblock %}

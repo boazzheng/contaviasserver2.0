@@ -292,8 +292,15 @@ def allocation_page(request: Request):
 @router.get("/allocation/data")
 def get_allocation_data(db: Session = Depends(get_db)):
     freelas = db.query(User).filter(User.role == "freelancer").all()
-    videos = db.query(Video).filter(Video.status.in_([VideoStatus.approved, VideoStatus.configured, "approved"])).all()
-    
+    videos = db.query(Video).filter(
+        Video.status.in_([
+            VideoStatus.approved, "approved", 
+            VideoStatus.processing, "processing", 
+            VideoStatus.completed, "completed",
+            VideoStatus.configured, "configured"
+        ])
+    ).all()
+
     video_list = []
     for v in videos:
         slices_data = []
@@ -326,7 +333,11 @@ def get_allocation_data(db: Session = Depends(get_db)):
             })
             
         video_list.append({
-            "id": v.id, "filename": v.original_filename, "project_name": v.project.name if v.project else "Sem Projeto", "slices": slices_data
+            "id": v.id, 
+            "filename": v.original_filename, 
+            "project_name": v.project.name if v.project else "Sem Projeto", 
+            "client_name": v.project.client.name if v.project and v.project.client else "Sem Cliente",
+            "slices": slices_data
         })
         
     return {
@@ -397,80 +408,233 @@ def view_reports_page(request: Request):
     return templates.TemplateResponse(request=request, name="reports.html")
 
 @router.get("/api/admin/reports/{project_id}")
-def get_project_report(project_id: int, db: Session = Depends(get_db)):
-
+def get_project_report(project_id: int, db: Session = Depends(get_db), approved_only: bool = False):
+    import re
+    from models import Project, Video, VideoSlice, Movement, MovementTask, CountRecord
+    
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project: raise HTTPException(status_code=404, detail="Projeto não encontrado")
         
+    movements = db.query(Movement).filter(Movement.project_id == project_id).all()
     videos = db.query(Video).filter(Video.project_id == project_id).all()
     video_ids = [v.id for v in videos]
     slices = db.query(VideoSlice).filter(VideoSlice.video_id.in_(video_ids)).all()
-    slice_ids = [s.id for s in slices]
-    # Agora pegamos TODAS as tarefas, independentemente do status (WIP incluído)
-    tasks = db.query(MovementTask).filter(MovementTask.slice_id.in_(slice_ids)).all()
-
-    task_ids = [t.id for t in tasks]
-    records = db.query(CountRecord).filter(CountRecord.task_id.in_(task_ids)).all()
     
-    task_map = {t.id: t for t in tasks}
-    video_map = {v.id: v for v in videos}
-    slice_map = {s.id: s for s in slices}
     report_dict = {}
-    
-    for r in records:
-        task = task_map.get(r.task_id)
-        if not task: continue
-        fatia = slice_map.get(task.slice_id)
-        video = video_map.get(fatia.video_id)
+
+    # Função para gerar o esqueleto (Sempre geramos o esqueleto completo para manter a estrutura)
+    def preencher_esqueleto(fatia, mov_name):
+        match = re.search(r'(\d{2}):(\d{2})', fatia.name)
+        h_start, m_start = (int(match.group(1)), int(match.group(2))) if match else (0,0)
+        duracao_segundos = fatia.end_time - fatia.start_time
+        num_blocos = int(duracao_segundos // 900) or 1
         
-        mov_name = task.movement.name if task.movement else "Indefinido"
-        video_filename = video.original_filename
+        for i in range(num_blocos):
+            min_base = h_start * 60 + m_start + (i * 15)
+            h_in, m_in = (min_base // 60) % 24, min_base % 60
+            h_out, m_out = ((min_base + 15) // 60) % 24, (min_base + 15) % 60
+            txt = f"{h_in:02d}:{m_in:02d} - {h_out:02d}:{m_out:02d}"
+            chave = f"{fatia.video.original_filename}|{fatia.id}|{mov_name}|{txt}"
+            if chave not in report_dict:
+                report_dict[chave] = {"video": fatia.video.original_filename, "movement": mov_name, "interval": txt, "sort_key": min_base, "Carro": 0, "Moto": 0, "Ônibus": 0, "Caminhão": 0, "has_data": False}
+
+    for mov in movements:
+        for s in slices:
+            preencher_esqueleto(s, mov.name)
+
+# BUSCA DOS CLIQUES
+    slice_ids = [s.id for s in slices]
+    
+    # 🔴 A LINHA QUE FALTAVA: Precisamos buscar as tasks no banco antes de mapeá-las!
+    tasks = db.query(MovementTask).filter(MovementTask.slice_id.in_(slice_ids)).all()
+    
+    query_records = db.query(CountRecord).join(MovementTask).filter(MovementTask.slice_id.in_(slice_ids))
+    
+    # A MÁGICA DO FILTRO: Se approved_only for True, só pega o que foi validado na auditoria
+    if approved_only:
+        query_records = query_records.filter(CountRecord.is_approved == True)
+
+    records = query_records.all()
+
+    # Criamos os mapas seguros de memória para não depender de relacionamentos do SQLAlchemy
+    task_map = {t.id: t for t in tasks}
+    slice_map = {s.id: s for s in slices}
+    video_map = {v.id: v for v in videos}
+
+    for r in records:
+        t = task_map.get(r.task_id)
+        if not t: continue
+            
+        fatia = slice_map.get(t.slice_id)
+        video = video_map.get(fatia.video_id)
+        mov_name = t.movement.name if t.movement else "Indefinido"
         
         bloco_idx = int(r.video_time // 900)
-        
-        # 🔴 A MÁGICA: Converte minutos relativos na Hora Real baseada na Fatia
         match = re.search(r'(\d{2}):(\d{2})', fatia.name)
         if match:
-            h = int(match.group(1))
-            m = int(match.group(2))
-            minutos_inicio = h * 60 + m + (bloco_idx * 15)
-            minutos_fim = minutos_inicio + 15
+            min_i = int(match.group(1)) * 60 + int(match.group(2)) + (bloco_idx * 15)
+            txt = f"{(min_i // 60) % 24:02d}:{min_i % 60:02d} - {((min_i + 15) // 60) % 24:02d}:{(min_i + 15) % 60:02d}"
             
-            h_in = (minutos_inicio // 60) % 24
-            m_in = minutos_inicio % 60
-            h_out = (minutos_fim // 60) % 24
-            m_out = minutos_fim % 60
+            # Usamos as variáveis puxadas dos mapas com segurança
+            chave = f"{video.original_filename}|{fatia.id}|{mov_name}|{txt}"
             
-            intervalo_txt = f"{h_in:02d}:{m_in:02d} - {h_out:02d}:{m_out:02d}"
-            chave_ordem = minutos_inicio # Chave mestre para cronologia perfeita!
-        else:
-            # Fallback caso a fatia não tenha hora no nome
-            intervalo_txt = f"{str(bloco_idx * 15).zfill(2)}m - {str((bloco_idx + 1) * 15).zfill(2)}m"
-            chave_ordem = bloco_idx
-            
-        # A chave de agrupamento garante que fatias iguais não se sobreponham
-        chave = f"{video_filename}|{fatia.id}|{mov_name}|{intervalo_txt}"
-        
-        if chave not in report_dict:
-            report_dict[chave] = {
-                "video": video_filename,
-                "movement": mov_name,
-                "interval": intervalo_txt,
-                "sort_key": chave_ordem,
-                "Carro": 0, "Moto": 0, "Ônibus": 0, "Caminhão": 0
-            }
-        
-        classe = r.vehicle_class
-        if classe in report_dict[chave]:
-            report_dict[chave][classe] += 1
-            
-    # 🔴 ORDENAÇÃO BLINDADA: Por Movimento -> Tempo Absoluto -> Nome do Vídeo
+            if chave in report_dict:
+                report_dict[chave][r.vehicle_class] += 1
+                report_dict[chave]["has_data"] = True # Marca que este bloco tem dados aprovados
+
+    # Se estamos no Relatório Final e não há dados aprovados, retornamos lista vazia
+    if approved_only and not any(v["has_data"] for v in report_dict.values()):
+        return {"project_name": project.name, "client_name": project.client.name, "data": []}
+
     resultado_final = list(report_dict.values())
     resultado_final.sort(key=lambda x: (x['movement'], x['sort_key'], x['video']))
     
+    project_status = getattr(project, 'status', 'processing')
+    selections = getattr(project, 'audit_selections', {})
+
     return {
-        "project_name": project.name, "client_name": project.client.name if project.client else "N/A", "data": resultado_final
+        "project_name": project.name,
+        "client_name": project.client.name if project.client else "Sem Cliente",
+        "status": project_status, 
+        "audit_selections": selections,
+        "data": resultado_final
     }
+
+@router.post("/api/admin/projects/{project_id}/audit/approve")
+def approve_audit(project_id: int, payload: dict, db: Session = Depends(get_db)):
+    from models import Project, ConsolidatedReport
+    
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+
+    final_data = payload.get("final_data", [])
+    selections_map = payload.get("selections_map", {})
+
+    if not final_data:
+        raise HTTPException(status_code=400, detail="Nenhum dado para salvar.")
+
+    # 1. Salva a "Foto" da UI para re-auditoria futura
+    project.audit_selections = selections_map
+    project.status = "approved"
+
+    # 2. Sobrescreve os dados finais
+    db.query(ConsolidatedReport).filter(ConsolidatedReport.project_id == project_id).delete()
+    
+    for row in final_data:
+        novo_registro = ConsolidatedReport(
+            project_id=project_id,
+            movement_name=row["movement"],
+            interval=row["interval"],
+            category=row["category"],
+            count=row["count"],
+            source=row["source"]
+        )
+        db.add(novo_registro)
+
+    db.commit()
+    return {"message": "Auditoria consolidada e salva com sucesso!"}
+
+@router.get("/api/admin/projects/{project_id}/consolidated")
+def get_consolidated_report(project_id: int, db: Session = Depends(get_db)):
+    from models import Project, ConsolidatedReport
+    
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+
+    # Busca todos os registros consolidados
+    records = db.query(ConsolidatedReport).filter(ConsolidatedReport.project_id == project_id).all()
+    
+    # Formata os dados para o frontend (agrupando por movimento e intervalo)
+    # Estrutura similar ao que a Auditoria usa, mas simplificada
+    data_list = []
+    for r in records:
+        data_list.append({
+            "movement": r.movement_name,
+            "interval": r.interval,
+            "category": r.category,
+            "count": r.count,
+            "source": r.source
+        })
+
+    return {
+        "project_name": project.name,
+        "client_name": project.client.name if project.client else "N/A",
+        "data": data_list
+    }
+
+import pandas as pd
+import io
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException
+
+# ... (seu router e imports existentes)
+
+@router.get("/api/admin/projects/{project_id}/export")
+def export_project_excel(project_id: int, db: Session = Depends(get_db)):
+    from models import Project, ConsolidatedReport
+    
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+
+    # 1. Busca os dados consolidados no banco
+    records = db.query(ConsolidatedReport).filter(ConsolidatedReport.project_id == project_id).all()
+    if not records:
+        raise HTTPException(status_code=400, detail="Este projeto ainda não possui dados consolidados para exportação.")
+
+    # 2. Converte para um DataFrame do Pandas
+    data = [{
+        "Movimento": r.movement_name,
+        "Intervalo": r.interval,
+        "Categoria": r.category,
+        "Quantidade": r.count
+    } for r in records]
+    df_raw = pd.DataFrame(data)
+
+    # 3. Cria o arquivo Excel em memória (Buffer)
+    output = io.BytesIO()
+    
+    # Ordem desejada das colunas
+    ordem_categorias = ["Carro", "Moto", "Ônibus", "Caminhão"]
+
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for movement in df_raw['Movimento'].unique():
+            # Filtra os dados deste movimento
+            df_mov = df_raw[df_raw['Movimento'] == movement]
+            
+            # Transforma as categorias em colunas (Pivot)
+            df_pivot = df_mov.pivot(index='Intervalo', columns='Categoria', values='Quantidade').fillna(0)
+            
+            # Garante que todas as categorias existam e estejam na ordem certa
+            for cat in ordem_categorias:
+                if cat not in df_pivot.columns:
+                    df_pivot[cat] = 0
+            
+            df_pivot = df_pivot[ordem_categorias]
+            
+            # Adiciona coluna de Total por linha
+            df_pivot['Total'] = df_pivot.sum(axis=1)
+            
+            # Nome da aba (limite de 31 caracteres do Excel)
+            sheet_name = str(movement)[:31].replace("/", "-").replace("\\", "-")
+            
+            # Salva no Excel
+            df_pivot.to_excel(writer, sheet_name=sheet_name)
+
+    output.seek(0)
+    
+    # 4. Retorna o arquivo para o navegador
+    filename = f"Relatorio_{project.name.replace(' ', '_')}.xlsx"
+    headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
+    
+    return StreamingResponse(
+        output, 
+        headers=headers, 
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 # ==========================================
 # DASHBOARD (TORRE DE CONTROLE)
@@ -482,3 +646,108 @@ def render_dashboard(request: Request):
 @router.get("/admin/freelancers", response_class=HTMLResponse)
 def render_freelancers(request: Request):
     return templates.TemplateResponse(request=request, name="freelancers.html")
+
+@router.get("/admin/audit", response_class=HTMLResponse)
+def render_audit_page(request: Request):
+    return templates.TemplateResponse(request=request, name="audit.html")
+
+# ==========================================
+# ESTATÍSTICAS GLOBAIS (SIDEBAR E DASHBOARD)
+# ==========================================
+
+@router.get("/api/admin/sidebar-stats")
+def get_sidebar_stats(db: Session = Depends(get_db)):
+    from models import Video, VideoStatus, MovementTask, SliceStatus
+    
+    # 1. Pendências de Staging (Vídeos aguardando fatiamento/aprovação)
+    staged_count = db.query(Video).filter(
+        Video.status.in_([VideoStatus.staged, VideoStatus.ready, VideoStatus.configured])
+    ).count()
+    
+    # 2. Pendências de Alocação (Tarefas que ainda não foram concluídas)
+    # Pegamos pending (sem dono) e assigned (com dono mas não terminou)
+    pending_tasks = db.query(MovementTask).filter(
+        MovementTask.status.in_([SliceStatus.pending, SliceStatus.assigned, "pending", "assigned"])
+    ).count()
+    
+    # 3. Pendências de Auditoria (Tarefas que os freelas já terminaram)
+    audit_ready = db.query(MovementTask).filter(
+        MovementTask.status.in_([SliceStatus.completed, "completed"])
+    ).count()
+    
+    return {
+        "staging": staged_count,
+        "allocation": pending_tasks,
+        "audit": audit_ready
+    }
+
+@router.get("/api/admin/kanban-data")
+def get_kanban_data(db: Session = Depends(get_db)):
+    from models import Project, Video, VideoStatus, MovementTask, SliceStatus
+    
+    projetos = db.query(Project).all()
+    resultado = []
+    
+    for p in projetos:
+        # Contagem de tarefas para progresso
+        videos_ids = [v.id for v in p.videos]
+        slices = db.query(VideoSlice).filter(VideoSlice.video_id.in_(videos_ids)).all()
+        slice_ids = [s.id for s in slices]
+        
+        total_tasks = db.query(MovementTask).filter(MovementTask.slice_id.in_(slice_ids)).count()
+        done_tasks = db.query(MovementTask).filter(
+            MovementTask.slice_id.in_(slice_ids), 
+            MovementTask.status == SliceStatus.completed
+        ).count()
+        
+        # Determina o estágio principal do projeto
+        estagio = "staging"
+        if any(v.status == VideoStatus.approved for v in p.videos): estagio = "allocation"
+        if total_tasks > 0 and done_tasks == total_tasks: estagio = "completed"
+        
+        resultado.append({
+            "id": p.id,
+            "name": p.name,
+            "client": p.client.name if p.client else "N/A",
+            "progress": f"{done_tasks}/{total_tasks}",
+            "percent": int((done_tasks / total_tasks * 100)) if total_tasks > 0 else 0,
+            "stage": estagio
+        })
+    return resultado
+
+
+# ==========================================
+# AUDITORIA (IA vs HUMANO)
+# ==========================================
+@router.post("/api/admin/projects/{project_id}/audit/approve")
+def approve_audit(project_id: int, payload: dict, db: Session = Depends(get_db)):
+    from models import Project, ConsolidatedReport
+    
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+
+    final_data = payload.get("final_data", [])
+    if not final_data:
+        raise HTTPException(status_code=400, detail="Nenhum dado para salvar.")
+
+    # 1. "Sobrescrever": Deleta todos os dados consolidados antigos deste projeto
+    db.query(ConsolidatedReport).filter(ConsolidatedReport.project_id == project_id).delete()
+
+    # 2. Insere os novos dados aprovados
+    for row in final_data:
+        novo_registro = ConsolidatedReport(
+            project_id=project_id,
+            movement_name=row["movement"],
+            interval=row["interval"],
+            category=row["category"],
+            count=row["count"],
+            source=row["source"]
+        )
+        db.add(novo_registro)
+
+    project.status = "approved"
+    db.commit()
+
+    return {"message": "Relatório Final consolidado e salvo com sucesso!"}
+
