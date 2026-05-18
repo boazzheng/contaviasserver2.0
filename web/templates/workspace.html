@@ -73,21 +73,11 @@
                 </button>
                 <div>
                     <h2 class="text-xl font-bold text-gray-800">Atividades Concluídas</h2>
-                    <p class="text-sm text-gray-500">Histórico de fatias finalizadas e enviadas.</p>
+                    <p class="text-sm text-gray-500">Histórico de fatias finalizadas e enviadas, agrupadas por projeto.</p>
                 </div>
             </div>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <table class="w-full text-left">
-                    <thead class="bg-gray-800 text-white text-xs uppercase font-bold">
-                        <tr>
-                            <th class="px-6 py-4">Vídeo</th> <th class="px-6 py-4">Movimento / Projeto</th>
-                            <th class="px-6 py-4">Horário</th> <th class="px-6 py-4 text-center">Total</th>
-                            <th class="px-6 py-4 text-right">Ação</th>
-                        </tr>
-                    </thead>
-                    <tbody id="history-container" class="divide-y divide-gray-100"></tbody>
-                </table>
-            </div>
+            
+            <div id="history-container" class="space-y-6"></div>
         </div>
 
     </main>
@@ -260,41 +250,103 @@
         
         async function renderizarHistorico() {
             const container = document.getElementById('history-container');
-            container.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">Carregando histórico...</td></tr>';
+            container.innerHTML = '<div class="text-center py-10 text-gray-400">⏳ Carregando histórico...</div>';
             
             try {
                 const response = await fetch(`/api/workspace/${currentUserId}/history`);
                 const dados = await response.json();
                 
                 if (dados.length === 0) {
-                    container.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400 italic">Nenhuma atividade concluída.</td></tr>';
+                    container.innerHTML = '<div class="text-center py-12 bg-white rounded-xl border border-gray-200 text-gray-500 italic">Nenhuma atividade concluída ainda.</div>';
                     return;
                 }
 
-                let html = '';
+                // 1. Agrupar os dados pelo nome do Projeto
+                const agrupadoPorProjeto = {};
                 dados.forEach(h => {
+                    if (!agrupadoPorProjeto[h.project]) agrupadoPorProjeto[h.project] = [];
+                    agrupadoPorProjeto[h.project].push(h);
+                });
+
+                let html = '';
+
+                // 2. Criar um Card Colapsável para cada Projeto
+                Object.keys(agrupadoPorProjeto).sort().forEach((nomeProjeto, index) => {
+                    const tarefasProjeto = agrupadoPorProjeto[nomeProjeto];
+                    const totalVeiculosProjeto = tarefasProjeto.reduce((sum, t) => sum + t.total, 0);
+                    const safeId = `hist_proj_${index}`;
+                    
+                    // O primeiro projeto já vem aberto por padrão
+                    const isFirst = index === 0;
+                    const contentClass = isFirst ? '' : 'hidden';
+                    const chevronClass = isFirst ? 'rotate-180' : '';
+                    const folderIcon = isFirst ? '📂' : '📁';
+
                     html += `
-                        <tr class="hover:bg-gray-50 transition">
-                            <td class="px-6 py-4 text-sm text-gray-700 font-bold truncate max-w-[200px]" title="${h.video_filename}">${h.video_filename}</td>
-                            <td class="px-6 py-4">
-                                <p class="font-bold text-gray-800">${h.movement}</p>
-                                <p class="text-[10px] text-gray-400 uppercase tracking-wider">${h.project}</p>
-                            </td>
-                            <td class="px-6 py-4 text-sm text-gray-600 font-mono">${h.slice_name}</td>
-                            <td class="px-6 py-4 text-center font-bold text-indigo-600">${h.total}</td>
-                            <td class="px-6 py-4 text-right">
-                                <button onclick="window.location.href='/freelancer/workspace/counter/${h.slice_id}?user_id=${currentUserId}&review=true&task_id=${h.task_id}'" 
-                                        class="text-xs bg-gray-100 hover:bg-indigo-600 hover:text-white text-gray-600 px-3 py-1.5 rounded-lg transition font-bold">
-                                    🔄 Revisar
-                                </button>
-                            </td>
-                        </tr>
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div onclick="toggleProjetoHistorico('${safeId}')" class="bg-green-50 border-b border-green-100 hover:bg-green-100 transition-colors cursor-pointer px-6 py-4 flex justify-between items-center group select-none">
+                                <div class="flex items-center gap-3">
+                                    <span id="icon_${safeId}" class="text-2xl transition-transform transform group-hover:scale-110">${folderIcon}</span>
+                                    <div>
+                                        <h3 class="font-bold text-lg text-green-900 flex items-center gap-2">
+                                            ${nomeProjeto}
+                                            <svg id="chevron_${safeId}" class="w-4 h-4 text-green-600 transition-transform duration-300 transform ${chevronClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </h3>
+                                        <p class="text-green-700 text-xs">${tarefasProjeto.length} movimentos entregues</p>
+                                    </div>
+                                </div>
+                                <div class="text-right hidden sm:block">
+                                    <span class="text-[10px] text-green-600 font-bold uppercase tracking-wider">Total Contado</span>
+                                    <p class="text-xl font-black text-green-800 leading-none">${totalVeiculosProjeto}</p>
+                                </div>
+                            </div>
+                            
+                            <div id="${safeId}" class="${contentClass} overflow-x-auto transition-all duration-300">
+                                <table class="w-full text-left">
+                                    <thead class="bg-gray-50 text-gray-500 text-[11px] uppercase font-bold border-b border-gray-200">
+                                        <tr>
+                                            <th class="px-6 py-3">Fatia de Tempo / Vídeo</th>
+                                            <th class="px-6 py-3">Movimento</th>
+                                            <th class="px-6 py-3 text-center">Contados</th>
+                                            <th class="px-6 py-3 text-right">Ação</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                    `;
+
+                    tarefasProjeto.forEach(h => {
+                        html += `
+                                        <tr class="hover:bg-gray-50 transition">
+                                            <td class="px-6 py-3">
+                                                <p class="text-sm text-gray-800 font-bold font-mono">⏱️ ${h.slice_name}</p>
+                                                <p class="text-[11px] text-gray-500 mt-0.5 break-words">${h.video_filename}</p>
+                                            </td>
+                                            <td class="px-6 py-3">
+                                                <p class="font-bold text-gray-800 text-sm">🔄 ${h.movement}</p>
+                                            </td>
+                                            <td class="px-6 py-3 text-center font-bold text-green-600">${h.total}</td>
+                                            <td class="px-6 py-3 text-right">
+                                                <button onclick="window.location.href='/freelancer/workspace/counter/${h.slice_id}?user_id=${currentUserId}&review=true&task_id=${h.task_id}'" 
+                                                        class="text-xs bg-white border border-gray-300 hover:bg-green-600 hover:text-white hover:border-green-600 text-gray-600 px-3 py-1.5 rounded-lg transition font-bold flex items-center justify-center gap-1.5 ml-auto shadow-sm">
+                                                    🔍 Revisar
+                                                </button>
+                                            </td>
+                                        </tr>
+                        `;
+                    });
+
+                    html += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     `;
                 });
 
                 container.innerHTML = html;
+                
             } catch (error) {
-                container.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-red-400">Erro ao carregar dados do servidor.</td></tr>';
+                container.innerHTML = '<div class="text-center py-8 text-red-500 bg-red-50 rounded-xl border border-red-200">Erro ao carregar o histórico do servidor.</div>';
             }
         }
 
@@ -302,6 +354,24 @@
             window.location.href = `/freelancer/workspace/counter/${sliceId}?user_id=${currentUserId}`;
         }
 
+        function toggleProjetoHistorico(id) {
+            const content = document.getElementById(id);
+            const chevron = document.getElementById(`chevron_${id}`);
+            const icon = document.getElementById(`icon_${id}`);
+
+            if (content.classList.contains('hidden')) {
+                // Abre a pasta
+                content.classList.remove('hidden');
+                chevron.classList.add('rotate-180');
+                icon.innerText = '📂';
+            } else {
+                // Fecha a pasta
+                content.classList.add('hidden');
+                chevron.classList.remove('rotate-180');
+                icon.innerText = '📁';
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', carregarDropdownUsuarios);
 
     </script>

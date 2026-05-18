@@ -87,6 +87,7 @@ class Video(Base):
     status = Column(Enum(VideoStatus), default=VideoStatus.staged)
     upload_date = Column(DateTime, default=datetime.utcnow)
 
+    is_validation = Column(Boolean, default=False)  # Para diferenciar tarefas de contagem das de validação
     project = relationship("Project", back_populates="videos")
     slices = relationship("VideoSlice", back_populates="video", cascade="all, delete-orphan")
 

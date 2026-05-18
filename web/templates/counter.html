@@ -161,7 +161,7 @@
         let tarefas = [];
         let tarefaAtivaId = null;
         let registros = []; // Array que vai para o banco [{task_id, vehicle_class, video_time}]
-
+        let tarefasConcluidas = new Set();
         let registros_antigos = []; // Guarda os dados carregados do banco no modo revisão
         const urlParams = new URLSearchParams(window.location.search);
         const isReviewMode = urlParams.get('review') === 'true';
@@ -358,27 +358,27 @@
             // 1. Atualiza o visual dos botões de movimento
             tarefas.forEach(t => {
                 const label = document.getElementById(`label-task-${t.id}`);
+                const isCompleted = tarefasConcluidas.has(t.id);
+                
+                label.classList.remove('bg-indigo-900', 'border-indigo-500', 'scale-105', 'bg-gray-700', 'border-gray-600', 'hover:bg-gray-600', 'bg-green-900/50', 'border-green-500', 'opacity-60');
+
                 if (t.id === id) {
-                    label.classList.replace('bg-gray-700', 'bg-indigo-900');
-                    label.classList.replace('border-gray-600', 'border-indigo-500');
-                    label.classList.add('scale-105'); // Dá um destaque no botão ativo
-                    label.classList.remove('hover:bg-gray-600');
+                    label.classList.add('bg-indigo-900', 'border-indigo-500', 'scale-105');
+                } else if (isCompleted) {
+                    label.classList.add('bg-green-900/50', 'border-green-500', 'opacity-60');
                 } else {
-                    label.classList.replace('bg-indigo-900', 'bg-gray-700');
-                    label.classList.replace('border-indigo-500', 'border-gray-600');
-                    label.classList.remove('scale-105');
-                    label.classList.add('hover:bg-gray-600');
+                    label.classList.add('bg-gray-700', 'border-gray-600', 'hover:bg-gray-600');
                 }
             });
 
-            // Renderiza e anima a tabela Nova
+            // 2. Renderiza e anima a tabela Nova
             const logContainer = document.getElementById('log-container');
             logContainer.classList.remove('page-turn');
-            void logContainer.offsetWidth;
+            void logContainer.offsetWidth; 
             logContainer.classList.add('page-turn');
             renderizarLogConsolidado();
 
-            // Renderiza e anima a tabela Antiga (se aplicável)
+            // 3. Renderiza e anima a tabela Antiga (se aplicável)
             if (isReviewMode) {
                 const logAntigo = document.getElementById('log-antigo-container');
                 logAntigo.classList.remove('page-turn');
@@ -386,11 +386,23 @@
                 logAntigo.classList.add('page-turn');
                 renderizarLogAntigo();
             }
-            // Adicione ISTO no final da função mudarTarefaAtiva(id), logo antes do fechamento }
+            
+            // 🔴 4. RESET DO VÍDEO: Volta pro início, pausa e ajusta o botão
+            if (video) {
+                video.currentTime = 0;
+                video.pause();
+                const btnPlay = document.getElementById('btn-play');
+                if (btnPlay) {
+                    btnPlay.innerHTML = '▶️ Play';
+                    btnPlay.classList.replace('bg-orange-600', 'bg-indigo-600');
+                }
+            }
+
+            // 5. Desenha as zonas corretas no vídeo
             const tarefaAtual = tarefas.find(t => t.id === id);
             desenharZonasNoVideo(tarefaAtual);
         }
-
+        
         // ==========================================
         // 2. LÓGICA DE CONTAGEM E LOG
         // ==========================================
@@ -742,8 +754,21 @@
                 });
 
                 if (response.ok) {
-                    alert("✅ Movimento salvo com sucesso!");
-                    window.location.href = '/freelancer/workspace';
+                    // 1. Marca a tarefa atual como concluída
+                    tarefasConcluidas.add(tarefaAtivaId);
+                    
+                    // 2. Procura se ainda existe algum movimento pendente
+                    const proximaTarefa = tarefas.find(t => !tarefasConcluidas.has(t.id));
+                    
+                    if (proximaTarefa) {
+                        // Tem tarefa pendente! Avisa e pula pra ela automaticamente.
+                        alert("✅ Movimento salvo! Carregando o próximo movimento pendente...");
+                        mudarTarefaAtiva(proximaTarefa.id);
+                    } else {
+                        // Não tem mais nada! Celebra e volta pro workspace.
+                        alert("🎉 Fantástico! Todos os movimentos desta fatia foram concluídos!");
+                        window.location.href = `/freelancer/workspace?user_id=${userId}`;
+                    }
                 } else {
                     const err = await response.json();
                     alert("Erro ao salvar: " + (err.detail || "Falha desconhecida"));

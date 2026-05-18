@@ -10,12 +10,12 @@
     <div id="coluna-projetos-reports" class="w-full xl:w-1/4 flex flex-col shrink-0">
         <div class="bg-white shadow-sm border border-gray-200 rounded-xl p-5 flex flex-col h-full min-h-[400px]">
             <div class="border-b border-gray-100 pb-3 mb-3">
-                <h2 class="text-lg font-bold text-gray-800">Selecione o Projeto</h2>
+                <h2 class="text-lg font-bold text-gray-800">Projetos Finalizados</h2>
                 <p class="text-xs text-gray-500 mt-1">Consolidação de dados OD</p>
             </div>
             
             <div id="lista-projetos" class="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
-                <p class="text-gray-400 text-sm italic text-center py-6">Carregando projetos...</p>
+                <p class="text-gray-400 text-sm italic text-center py-6">Carregando relatórios...</p>
             </div>
         </div>
     </div>
@@ -34,9 +34,16 @@
                     <p id="view-client-name" class="text-sm font-medium text-gray-500"></p>
                 </div>
             </div>
-            <button id="btn-export" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-sm transition flex items-center gap-2">
-                📥 Exportar Excel (CSV)
-            </button>
+            
+            <div class="flex items-center gap-3 w-full md:w-auto">
+                <button id="btn-revert" onclick="reverterAuditoria()" class="bg-amber-50 text-amber-700 border border-amber-300 hover:bg-amber-100 font-bold py-2.5 px-4 rounded-lg shadow-sm transition flex items-center gap-2 text-sm flex-1 md:flex-none justify-center">
+                    ↩️ Reverter para Auditoria
+                </button>
+                
+                <button id="btn-export" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-sm transition flex items-center gap-2 flex-1 md:flex-none justify-center">
+                    📥 Exportar Excel
+                </button>
+            </div>
         </header>
 
         <div id="content-relatorio" class="flex-1 overflow-y-auto p-6">
@@ -55,21 +62,39 @@
     let dadosConsolidados = null;
     let projetoSelecionadoId = null;
 
-    // --- CARGA DE PROJETOS (SIDEBAR) ---
+    // --- CARGA DE PROJETOS AGRUPADOS (SIDEBAR) ---
     async function carregarProjetos() {
         try {
-            const res = await fetch('/projects'); 
-            const data = await res.json();
-            const projetos = data.projects || data; 
+            // 🔴 MUDANÇA: Bate na nova rota de projetos concluídos!
+            const res = await fetch('/api/admin/reports/completed'); 
+            const json = await res.json();
+            const clientes = json.data || []; 
             const container = document.getElementById('lista-projetos');
             container.innerHTML = '';
 
-            projetos.forEach(p => {
-                const btn = document.createElement('button');
-                btn.className = "w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-indigo-50 border border-gray-100 transition text-sm font-medium flex justify-between items-center text-gray-700";
-                btn.onclick = () => visualizarRelatorio(p.id);
-                btn.innerHTML = `<span>📁 ${p.name}</span> <span class="text-[10px] uppercase text-indigo-500 font-bold">Ver</span>`;
-                container.appendChild(btn);
+            if (clientes.length === 0) {
+                container.innerHTML = '<p class="text-gray-400 text-sm italic text-center py-6">Nenhum relatório finalizado.</p>';
+                return;
+            }
+
+            clientes.forEach(cliente => {
+                const clientDiv = document.createElement('div');
+                clientDiv.className = 'mb-5';
+                clientDiv.innerHTML = `<div class="flex items-center gap-2 mb-2 px-1"><span class="text-[10px] font-black bg-slate-200 text-slate-600 px-2 py-0.5 rounded uppercase tracking-widest">🏢 Cliente</span><h3 class="text-sm font-bold text-slate-800">${cliente.client_name}</h3></div>`;
+                
+                const projectList = document.createElement('div');
+                projectList.className = 'space-y-1.5 ml-2 border-l-2 border-gray-100 pl-2';
+
+                cliente.projects.forEach(p => {
+                    const btn = document.createElement('button');
+                    btn.className = "w-full text-left p-2.5 rounded-lg bg-gray-50 hover:bg-indigo-50 border border-gray-100 transition text-sm font-medium flex justify-between items-center text-gray-700 shadow-sm";
+                    btn.onclick = () => visualizarRelatorio(p.project_id);
+                    btn.innerHTML = `<span class="truncate pr-2">📁 ${p.project_name}</span> <span class="text-[10px] uppercase bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold shrink-0">Ver</span>`;
+                    projectList.appendChild(btn);
+                });
+
+                clientDiv.appendChild(projectList);
+                container.appendChild(clientDiv);
             });
         } catch (e) { console.error("Erro ao carregar projetos", e); }
     }
@@ -109,10 +134,50 @@
         }
     }
 
+    // 🔴 NOVA FUNÇÃO: Reverter para Auditoria
+    async function reverterAuditoria() {
+        if (!projetoSelecionadoId) return;
+        
+        if (!confirm("⚠️ Tem certeza que deseja reverter este relatório?\n\nEle sairá desta tela e voltará para a Auditoria IA para que você possa revisá-lo ou solicitar novas recontagens.")) return;
+        
+        const btn = document.getElementById('btn-revert');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "⏳ Revertendo..."; 
+        btn.disabled = true;
+        
+        try {
+            const res = await fetch(`/api/admin/projects/${projetoSelecionadoId}/audit/revert`, { method: 'POST' });
+            const data = await res.json();
+            
+            if (data.status === 'success') {
+                alert("✅ Projeto devolvido para a Auditoria com sucesso!");
+                
+                // Reseta a tela
+                document.getElementById('header-projeto').classList.add('hidden');
+                document.getElementById('content-relatorio').innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-gray-400 opacity-60">
+                        <span class="text-6xl mb-4">📊</span>
+                        <p class="text-lg font-medium">Selecione um projeto ao lado para visualizar os dados.</p>
+                    </div>`;
+                projetoSelecionadoId = null;
+                
+                // Recarrega a lista de relatórios e atualiza o número no menu lateral
+                carregarProjetos();
+                if (typeof atualizarBadgesSidebar === 'function') atualizarBadgesSidebar();
+            } else {
+                alert("Erro: " + data.message);
+            }
+        } catch (e) {
+            alert("Erro ao conectar com o servidor.");
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+
     function renderizarTabelaFinal(data) {
         const contentDiv = document.getElementById('content-relatorio');
         
-        // Agrupar por Movimento
         const agrupado = {};
         data.forEach(d => {
             if (!agrupado[d.movement]) agrupado[d.movement] = {};
@@ -125,7 +190,7 @@
         let html = `
             <div class="flex overflow-x-auto border-b border-gray-200 mb-6 gap-2 shrink-0">
                 ${movimentos.map((m, i) => `
-                    <button onclick="mudarAba('tab_rep_${i}', this)" class="tab-btn px-6 py-3 border-b-2 font-bold text-sm rounded-t-lg ${i===0 ? 'border-indigo-600 text-indigo-600 bg-indigo-50' : 'border-transparent text-gray-500 bg-gray-50'}">
+                    <button onclick="mudarAba('tab_rep_${i}', this)" class="tab-btn px-6 py-3 border-b-2 font-bold text-sm rounded-t-lg transition-colors ${i===0 ? 'border-indigo-600 text-indigo-600 bg-indigo-50' : 'border-transparent text-gray-500 bg-gray-50 hover:bg-gray-100'}">
                         ${m}
                     </button>
                 `).join('')}
@@ -133,7 +198,7 @@
             <div class="flex-1 flex flex-col min-h-0">
                 ${movimentos.map((m, i) => `
                     <div id="tab_rep_${i}" class="tab-content ${i===0 ? '' : 'hidden'} flex-1 overflow-y-auto">
-                        <table class="w-full text-center border border-gray-200 rounded-lg overflow-hidden">
+                        <table class="w-full text-center border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                             <thead class="bg-slate-800 text-white text-xs uppercase tracking-wider">
                                 <tr>
                                     <th class="p-3 text-left">Horário</th>
@@ -149,13 +214,13 @@
                                     const row = agrupado[m][interval];
                                     const total = row.Carro + row.Moto + row["Ônibus"] + row.Caminhão;
                                     return `
-                                        <tr class="hover:bg-slate-50">
-                                            <td class="p-3 text-left font-mono text-slate-500 bg-slate-50 w-40">${interval}</td>
+                                        <tr class="hover:bg-slate-50 transition-colors">
+                                            <td class="p-3 text-left font-mono text-slate-500 bg-slate-50 w-40 border-r border-gray-100">${interval}</td>
                                             <td class="p-3">${row.Carro}</td>
                                             <td class="p-3">${row.Moto}</td>
                                             <td class="p-3">${row["Ônibus"]}</td>
                                             <td class="p-3">${row.Caminhão}</td>
-                                            <td class="p-3 font-bold bg-slate-50/50">${total}</td>
+                                            <td class="p-3 font-bold bg-slate-50 border-l border-gray-100 text-indigo-900">${total}</td>
                                         </tr>`;
                                 }).join('')}
                             </tbody>
@@ -170,18 +235,15 @@
     function mudarAba(tabId, btn) {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
         document.getElementById(tabId).classList.remove('hidden');
-        document.querySelectorAll('.tab-btn').forEach(b => b.className = "tab-btn px-6 py-3 border-b-2 font-bold text-sm rounded-t-lg border-transparent text-gray-500 bg-gray-50");
-        btn.className = "tab-btn px-6 py-3 border-b-2 font-bold text-sm rounded-t-lg border-indigo-600 text-indigo-600 bg-indigo-50";
+        document.querySelectorAll('.tab-btn').forEach(b => b.className = "tab-btn px-6 py-3 border-b-2 font-bold text-sm rounded-t-lg transition-colors border-transparent text-gray-500 bg-gray-50 hover:bg-gray-100");
+        btn.className = "tab-btn px-6 py-3 border-b-2 font-bold text-sm rounded-t-lg transition-colors border-indigo-600 text-indigo-600 bg-indigo-50";
     }
 
-    // --- EXPORTAÇÃO (Placeholder para Excel) ---
     document.getElementById('btn-export').onclick = () => {
         if(!projetoSelecionadoId) {
             alert("Por favor, selecione um projeto primeiro.");
             return;
         }
-        
-        // Simplesmente redireciona para a rota de download
         window.location.href = `/api/admin/projects/${projetoSelecionadoId}/export`;
     };
 

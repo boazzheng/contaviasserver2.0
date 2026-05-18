@@ -41,51 +41,93 @@ def workspace_page(request: Request):
 
 @router.get("/api/freelancer/workspace/{user_id}")
 def get_workspace_data(user_id: int, db: Session = Depends(get_db)):
-    freela = db.query(User).filter(User.id == user_id).first()
-    if not freela: raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    # Certifique-se de que Project está importado no topo do seu arquivo
+    from models import User, WorkPackage, MovementTask, VideoSlice, Video, Project, SliceStatus
     
-    pacotes = db.query(WorkPackage).filter(WorkPackage.freelancer_id == user_id, WorkPackage.status != "completed").all()
+    freela = db.query(User).filter(User.id == user_id).first()
+    if not freela: 
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    pacotes = db.query(WorkPackage).filter(
+        WorkPackage.freelancer_id == user_id, 
+        WorkPackage.status != "completed"
+    ).all()
+    
     packages_data = []
     total_tasks_global = 0
     
     for p in pacotes:
         tarefas = db.query(MovementTask).filter(MovementTask.work_package_id == p.id).all()
+        
         total_tasks = len(tarefas)
         completed_tasks = sum(1 for t in tarefas if t.status == SliceStatus.completed)
-        total_tasks_global += (total_tasks - completed_tasks)
+        pendentes = total_tasks - completed_tasks
         
-        agrupamento_videos = {}
-        for t in tarefas:
-            if t.status == SliceStatus.completed: continue 
+        # Se não tem nada pendente neste pacote, não manda pro Frontend
+        if pendentes == 0:
+            continue
             
-            fatia = db.query(VideoSlice).filter(VideoSlice.id == t.slice_id).first()
-            video = db.query(Video).filter(Video.id == fatia.video_id).first() if fatia else None
-            if not fatia or not video: continue
+        total_tasks_global += pendentes
+        agrupamento_videos = {}
+        
+        for t in tarefas:
+            if t.status == SliceStatus.completed: 
+                continue 
+            
+            # Usando as relações (hasattr) do SQLAlchemy para evitar bater no banco 100x
+            fatia = t.slice if hasattr(t, 'slice') and t.slice else db.query(VideoSlice).filter(VideoSlice.id == t.slice_id).first()
+            if not fatia: continue
+            
+            video = fatia.video if hasattr(fatia, 'video') and fatia.video else db.query(Video).filter(Video.id == fatia.video_id).first()
+            if not video: continue
+
+            # Puxa o nome real do Projeto
+            projeto = video.project if hasattr(video, 'project') and video.project else db.query(Project).filter(Project.id == video.project_id).first()
+            nome_projeto = projeto.name if projeto else f"Projeto #{video.project_id}"
             
             v_id = video.id
             if v_id not in agrupamento_videos:
                 agrupamento_videos[v_id] = {
-                    "video_id": v_id, "filename": video.original_filename, "project_name": f"Projeto #{video.project_id}", "slices": {}
+                    "video_id": v_id, 
+                    "filename": video.original_filename, 
+                    "project_name": nome_projeto, # 🔴 Nome Real Aqui
+                    "slices": {}
                 }
             
             s_id = fatia.id
             if s_id not in agrupamento_videos[v_id]["slices"]:
-                agrupamento_videos[v_id]["slices"][s_id] = {"slice_id": s_id, "name": fatia.name, "tasks": []}
+                agrupamento_videos[v_id]["slices"][s_id] = {
+                    "slice_id": s_id, 
+                    "name": fatia.name, 
+                    "tasks": []
+                }
             
             mov_nome = t.movement.name if hasattr(t, 'movement') and t.movement else "Movimento"
-            agrupamento_videos[v_id]["slices"][s_id]["tasks"].append({"id": t.id, "movement_name": mov_nome})
+            agrupamento_videos[v_id]["slices"][s_id]["tasks"].append({
+                "id": t.id, 
+                "movement_name": mov_nome
+            })
         
         for v in agrupamento_videos.values():
             v["slices"] = list(v["slices"].values())
             
+        # Puxa o nome real do Projeto pro Pacote também
+        pkg_proj = db.query(Project).filter(Project.id == p.project_id).first()
+        pkg_nome_projeto = pkg_proj.name if pkg_proj else f"Projeto #{p.project_id}"
+            
         packages_data.append({
-            "package_id": p.id, "package_name": p.name, "project_name": f"Projeto #{p.project_id}",
-            "progress": f"{completed_tasks}/{total_tasks} Movimentos Concluídos", "videos": list(agrupamento_videos.values())
+            "package_id": p.id, 
+            "package_name": p.name, 
+            "project_name": pkg_nome_projeto, # 🔴 Nome Real Aqui
+            "progress": f"{completed_tasks}/{total_tasks} Movimentos Concluídos", 
+            "videos": list(agrupamento_videos.values())
         })
     
     return {
-        "freelancer_name": freela.name, "total_tasks": total_tasks_global,
-        "total_packages": len(packages_data), "packages": packages_data
+        "freelancer_name": freela.name, 
+        "total_tasks": total_tasks_global,
+        "total_packages": len(packages_data), 
+        "packages": packages_data
     }
 
 # ==========================================

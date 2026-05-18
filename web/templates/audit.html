@@ -19,29 +19,42 @@
         </div>
     </div>
 
-    <div id="coluna-tabela-audit" class="w-full xl:w-3/4 flex flex-col min-h-0 bg-white shadow-sm border border-gray-200 rounded-xl transition-all duration-300">
-        
-        <header id="header-projeto" class="hidden py-3 px-5 border-b border-gray-200 items-center justify-between bg-slate-50 rounded-t-xl shrink-0">
-            
+    <div id="coluna-tabela-audit"
+        class="w-full xl:w-3/4 flex flex-col min-h-0 bg-white shadow-sm border border-gray-200 rounded-xl transition-all duration-300">
+
+        <header id="header-projeto"
+            class="hidden py-3 px-5 border-b border-gray-200 items-center justify-between bg-slate-50 rounded-t-xl shrink-0">
+
             <div class="flex items-center gap-3">
-                <button id="btn-toggle-projetos-audit" onclick="toggleListaProjetosAudit()" class="text-slate-500 hover:text-indigo-600 transition bg-white border border-slate-200 hover:bg-slate-100 p-1.5 rounded shadow-sm" title="Esconder/Mostrar Lista de Projetos">
+                <button id="btn-toggle-projetos-audit" onclick="toggleListaProjetosAudit()"
+                    class="text-slate-500 hover:text-indigo-600 transition bg-white border border-slate-200 hover:bg-slate-100 p-1.5 rounded shadow-sm"
+                    title="Esconder/Mostrar Lista de Projetos">
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
                     </svg>
                 </button>
-                
-                <h2 id="view-project-name" class="text-base font-bold text-slate-800 tracking-tight">Projeto Selecionado</h2>
-                
-                <span id="ia-status-global" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-700 border border-amber-200 shadow-sm flex items-center gap-1 ml-2">
+
+                <h2 id="view-project-name" class="text-base font-bold text-slate-800 tracking-tight">Projeto Selecionado
+                </h2>
+
+                <span id="ia-status-global"
+                    class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-700 border border-amber-200 shadow-sm flex items-center gap-1 ml-2">
                     <span class="animate-spin h-3 w-3 border-b-2 border-amber-700 rounded-full inline-block"></span>
                     IA Processando
                 </span>
             </div>
-            
-            <div>
-                <button id="btn-aprovar-auditoria" onclick="aprovarAuditoria()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded text-xs transition shadow-sm flex items-center gap-1.5">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                    Aprovar
+
+            <div class="flex items-center gap-3 justify-end mt-4 p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+                <button id="btn-recontar" onclick="abrirModalRecontar()"
+                    class="px-5 py-2.5 bg-orange-50 text-orange-700 border border-orange-300 rounded-lg font-bold shadow-sm hover:bg-orange-100 transition flex items-center gap-2">
+                     Recontar
+                </button>
+
+                <button id="btn-aprovar" onclick="aprovarAuditoria()"
+                    class="px-5 py-2.5 bg-gray-400 text-white rounded-lg font-bold shadow-sm cursor-not-allowed opacity-60 transition flex items-center gap-2"
+                    disabled title="Resolva todas as pendências antes de aprovar">
+                    Aprovar Relatório
                 </button>
             </div>
         </header>
@@ -53,7 +66,25 @@
             </div>
         </div>
     </div>
+<div id="modalRecontar" class="fixed inset-0 bg-gray-900/60 z-50 hidden flex items-center justify-center backdrop-blur-sm">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div class="p-5 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+            <div>
+                <h3 class="text-xl font-bold text-gray-800">Resumo de Pendências</h3>
+                <p class="text-sm text-gray-500">Estas são as divergências que justificam a recontagem manual.</p>
+            </div>
+            <button onclick="document.getElementById('modalRecontar').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-2xl font-bold">&times;</button>
+        </div>
+        
+        <div id="conteudo-modal-recontar" class="p-6 overflow-y-auto flex-1 custom-scrollbar">
+            </div>
 
+        <div class="p-5 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+            <button onclick="document.getElementById('modalRecontar').classList.add('hidden')" class="px-4 py-2 font-bold text-gray-600 hover:bg-gray-200 rounded-lg transition">Cancelar</button>
+            <button onclick="confirmarRecontagem()" class="px-6 py-2 font-bold bg-orange-500 text-white hover:bg-orange-600 rounded-lg shadow-sm transition">Confirmar e Enviar para Alocação</button>
+        </div>
+    </div>
+</div>
 </div>
 {% endblock %}
 
@@ -61,10 +92,10 @@
 <script>
     let dadosAtuais = null;
     let projetoAtualId = null;
-    let auditoriaSelecoes = {}; 
-    let projetosAprovadosNoFrontend = new Set(); 
-    let projetoAprovado = false; 
-    let foiDescongelado = false; 
+    let auditoriaSelecoes = {};
+    let projetosAprovadosNoFrontend = new Set();
+    let projetoAprovado = false;
+    let foiDescongelado = false;
     let abaAtivaId = null;       // Guarda a aba atualmente aberta
     let scrollPosicoes = {};     // Guarda a posição da barra de rolagem de cada aba
 
@@ -90,9 +121,9 @@
     // --- CARGA DE DADOS ---
     async function carregarProjetos() {
         try {
-            const res = await fetch('/projects'); 
+            const res = await fetch('/projects');
             const data = await res.json();
-            const projetos = data.projects || data; 
+            const projetos = data.projects || data;
             const container = document.getElementById('lista-projetos');
             container.innerHTML = '';
 
@@ -126,36 +157,117 @@
         });
     }
 
+    // Define o rigor estatístico com base no peso/volume da categoria
+    function obterLimitesCategoria(cat) {
+        if (cat === "Ônibus" || cat === "Caminhão") {
+            // Rigor Alto: <= 5% ou 1 veículo (Verde) / <= 8% ou 2 veículos (Amarelo)
+            return { pctVerde: 0.05, absVerde: 1, pctAmarelo: 0.08, absAmarelo: 2 };
+        } else {
+            // Rigor Normal: <= 5% ou 3 veículos (Verde) / <= 10% ou 4 veículos (Amarelo)
+            return { pctVerde: 0.05, absVerde: 3, pctAmarelo: 0.10, absAmarelo: 4 };
+        }
+    }
+
     function executarPreSelecao(linhas) {
+        let mudouAlgo = false;
+        const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
+
+        // FASE 1: ANÁLISE GLOBAL DA AMOSTRA
+        const estatisticas = {};
+
         linhas.forEach(r => {
-            const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
+            const mov = r.movement;
+            if (!estatisticas[mov]) {
+                estatisticas[mov] = {};
+                categorias.forEach(c => estatisticas[mov][c] = { totalAmostras: 0, aceitaveis: 0, marginais: 0, ruins: 0 });
+            }
+
             categorias.forEach(cat => {
-                const valH = r[cat] || 0;
-                const valIA = r.ia_data[cat] || 0;
-                const key = `${r.interval}|${r.movement}|${cat}`;
-                
-                const diffPct = valH > 0 ? Math.abs((valIA - valH) / valH) : (valIA > 0 ? 1 : 0);
-                
-                if (diffPct <= 0.05) {
-                    auditoriaSelecoes[key] = "IA";
+                const rawH = r[cat];
+                if (rawH !== undefined && rawH !== null) {
+                    const valH = rawH;
+                    const valIA = (r.ia_data && r.ia_data[cat] !== undefined) ? r.ia_data[cat] : 0;
+
+                    const diffAbs = Math.abs(valIA - valH);
+                    const diffPct = valH > 0 ? diffAbs / valH : (valIA > 0 ? 1 : 0);
+
+                    estatisticas[mov][cat].totalAmostras++;
+                    const limites = obterLimitesCategoria(cat);
+
+                    if (diffPct <= limites.pctVerde || diffAbs <= limites.absVerde) {
+                        estatisticas[mov][cat].aceitaveis++;
+                    } else if (diffPct <= limites.pctAmarelo || diffAbs <= limites.absAmarelo) {
+                        estatisticas[mov][cat].marginais++;
+                    } else {
+                        estatisticas[mov][cat].ruins++;
+                    }
                 }
             });
         });
+
+        // FASE 2: APLICAÇÃO INTELIGENTE
+        linhas.forEach(r => {
+            const mov = r.movement;
+
+            categorias.forEach(cat => {
+                const key = `${r.interval}|${mov}|${cat}`;
+                if (auditoriaSelecoes[key]) return;
+
+                const stats = estatisticas[mov][cat];
+                let aprovarCategoriaInteira = false;
+
+                if (stats.totalAmostras > 0) {
+                    const amostrasBoas = stats.aceitaveis + stats.marginais;
+                    const taxaAproveitamento = amostrasBoas / stats.totalAmostras;
+                    if (taxaAproveitamento >= 0.80) {
+                        aprovarCategoriaInteira = true;
+                    }
+                } else {
+                    aprovarCategoriaInteira = true;
+                }
+
+                if (aprovarCategoriaInteira) {
+                    auditoriaSelecoes[key] = "IA";
+                    mudouAlgo = true;
+                } else {
+                    const rawH = r[cat];
+                    const hasData = rawH !== undefined && rawH !== null;
+
+                    if (hasData) {
+                        const valH = rawH;
+                        const valIA = (r.ia_data && r.ia_data[cat] !== undefined) ? r.ia_data[cat] : 0;
+                        const diffAbs = Math.abs(valIA - valH);
+                        const diffPct = valH > 0 ? diffAbs / valH : (valIA > 0 ? 1 : 0);
+
+                        const limites = obterLimitesCategoria(cat);
+
+                        // Seleciona a amostra individual se ela passou no limite da categoria
+                        if (diffPct <= limites.pctAmarelo || diffAbs <= limites.absAmarelo) {
+                            auditoriaSelecoes[key] = "IA";
+                            mudouAlgo = true;
+                        }
+                    }
+                }
+            });
+        });
+
+        if (mudouAlgo && typeof projetoAprovado !== 'undefined' && !projetoAprovado) {
+            // salvarSelecoes(); 
+        }
     }
 
     async function carregarAuditoria(projectId) {
         projetoAtualId = projectId;
-        
-        // Verifica se o projeto já foi aprovado nesta sessão para travar a interface
+
         projetoAprovado = projetosAprovadosNoFrontend.has(projectId);
 
         const content = document.getElementById('content-auditoria');
         const header = document.getElementById('header-projeto');
-        
+
         content.innerHTML = '<div class="flex justify-center items-center h-full"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div></div>';
-        
+
         try {
-            abaAtivaId = null;      
+            abaAtivaId = null;
             scrollPosicoes = {};
             const res = await fetch(`/api/admin/reports/${projectId}`);
             dadosAtuais = await res.json();
@@ -167,44 +279,56 @@
                 return;
             }
 
-            // Geramos os dados estáticos (Eles não mudarão mais, garantindo o congelamento)
             gerarDadosIAEstaveis(dadosAtuais.data);
-            
-            // Se o projeto não foi aprovado ainda, limpa e refaz a inteligência de seleção
-            if (!projetoAprovado) {
-                auditoriaSelecoes = {}; 
-                executarPreSelecao(dadosAtuais.data);
-            }
 
-            // 🔴 LÊ DO BANCO SE JÁ FOI APROVADO
-            if (dadosAtuais.status === 'approved' && dadosAtuais.audit_selections && Object.keys(dadosAtuais.audit_selections).length > 0) {
+            const isApproved = (dadosAtuais.status === 'approved' || dadosAtuais.status === 'completed');
+            const isRecounting = (dadosAtuais.status === 'recounting');
+            
+            if (isApproved) {
                 projetoAprovado = true;
                 auditoriaSelecoes = dadosAtuais.audit_selections;
             } else {
                 projetoAprovado = false;
-                auditoriaSelecoes = {}; 
+                auditoriaSelecoes = {};
                 executarPreSelecao(dadosAtuais.data);
             }
 
             header.classList.remove('hidden');
             header.classList.add('flex');
             document.getElementById('view-project-name').innerText = dadosAtuais.project_name;
-            
+
+            // CONTROLE VISUAL DA INTERFACE
             const badgeIA = document.getElementById('ia-status-global');
-            if(badgeIA) {
-                if (projetoAprovado) {
-                    badgeIA.innerHTML = '🔒 Dados Auditados e Congelados';
-                    badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-800 border border-indigo-300 shadow-sm flex items-center ml-2';
-                } else {
-                    badgeIA.innerHTML = '<span class="animate-pulse h-2 w-2 bg-emerald-500 rounded-full inline-block mr-1"></span> IA Disponível';
-                    badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm flex items-center ml-2';
+            const titleElement = document.getElementById('view-project-name'); 
+            const seloAntigo = document.getElementById('selo-recontagem');
+            
+            const btnRecontar = document.getElementById('btn-recontar'); 
+            const btnAprovar = document.getElementById('btn-aprovar');
+
+            if (seloAntigo) seloAntigo.remove();
+
+            // 🔴 MUDANÇA AQUI: Mesmo em recontagem, os botões ficam VISÍVEIS
+            if (isRecounting) {
+                if (badgeIA) {
+                    badgeIA.innerHTML = '⏳ Em Recontagem pelos Freelancers';
+                    badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-300 shadow-sm flex items-center ml-2';
+                }
+            } else {
+                if (badgeIA) {
+                    if (isApproved) {
+                        badgeIA.innerHTML = '🔒 Dados Auditados e Congelados';
+                        badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-800 border border-indigo-300 shadow-sm flex items-center ml-2';
+                    } else {
+                        badgeIA.innerHTML = '<span class="animate-pulse h-2 w-2 bg-emerald-500 rounded-full inline-block mr-1"></span> IA Disponível';
+                        badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm flex items-center ml-2';
+                    }
                 }
             }
 
-            // Esconde/Mostra o botão de aprovar baseado no status
-            const btnAprovar = document.getElementById('btn-aprovar-auditoria');
-            if(btnAprovar) btnAprovar.style.display = projetoAprovado ? 'none' : 'flex';
-            
+            // Os botões só somem se o projeto já estiver aprovado/finalizado em definitivo
+            if (btnAprovar) btnAprovar.style.display = isApproved ? 'none' : 'flex';
+            if (btnRecontar) btnRecontar.style.display = isApproved ? 'none' : 'inline-flex'; 
+
             renderizarTabelaAuditoria(dadosAtuais.data);
 
         } catch (err) {
@@ -214,30 +338,31 @@
 
     function verificarDescongelamento() {
         if (projetoAprovado) {
-            projetoAprovado = false; 
+            projetoAprovado = false;
             foiDescongelado = true; // 🔴 Marca que foi aberto para edição
-            
-            const btn = document.getElementById('btn-aprovar-auditoria');
+
+            const btn = document.getElementById('btn-aprovar');
             btn.style.display = 'flex';
             btn.innerHTML = '⚠️ Re-aprovar Alterações';
             btn.className = 'bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-5 rounded-lg text-sm transition shadow-sm flex items-center gap-2';
-            
+
             const badgeIA = document.getElementById('ia-status-global');
             badgeIA.innerHTML = '✏️ Edição Aberta';
             badgeIA.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-300 shadow-sm flex items-center ml-2';
         }
     }
-    
+
     // --- RENDERIZAÇÃO DA TABELA ---
     function renderizarTabelaAuditoria(linhas) {
         const contentDiv = document.getElementById('content-auditoria');
-        
+        dadosGlobaisAuditoria = linhas;
+
         // 🔴 ANTES DE APAGAR: Salva a posição de rolagem de todas as abas
         document.querySelectorAll('.tab-content').forEach(el => {
             scrollPosicoes[el.id] = el.scrollTop;
         });
 
-        contentDiv.className = "flex-1 p-6 flex flex-col min-h-0 bg-white"; 
+        contentDiv.className = "flex-1 p-6 flex flex-col min-h-0 bg-white";
 
         if (!linhas || linhas.length === 0) {
             contentDiv.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-gray-400 opacity-60"><span class="text-6xl mb-4">📭</span><p class="text-lg font-medium">Nenhum dado disponível.</p></div>`;
@@ -251,7 +376,7 @@
         });
 
         const movimentos = Object.keys(agrupado);
-        
+
         // 🔴 Define qual aba deve estar ativa (Se não houver memória, usa a aba 0)
         if (!abaAtivaId || !movimentos.some((m, i) => `tab_${i}` === abaAtivaId)) {
             abaAtivaId = 'tab_0';
@@ -266,25 +391,25 @@
             textoLegenda = "✏️ Editando Seleções";
             corLegenda = "bg-amber-200 border-amber-400";
         }
-        
+
         let html = `
             <div class="flex overflow-x-auto border-b border-gray-200 mb-4 gap-2 pb-px shrink-0 custom-scrollbar">
                 ${movimentos.map((m, i) => {
-                    const tId = `tab_${i}`;
-                    // Verifica se esta aba é a que deve ficar ativa
-                    const activeClass = (tId === abaAtivaId) ? 'border-slate-500 text-slate-800 bg-slate-100' : 'border-transparent text-gray-500 bg-gray-50 hover:bg-gray-100';
-                    return `
+            const tId = `tab_${i}`;
+            // Verifica se esta aba é a que deve ficar ativa
+            const activeClass = (tId === abaAtivaId) ? 'border-slate-500 text-slate-800 bg-slate-100' : 'border-transparent text-gray-500 bg-gray-50 hover:bg-gray-100';
+            return `
                     <button onclick="mudarAba('${tId}', this)" class="tab-btn px-5 py-2.5 border-b-2 font-bold text-sm rounded-t-lg ${activeClass}">
                         🛣️ ${m}
                     </button>`;
-                }).join('')}
+        }).join('')}
             </div>
             <div class="bg-white border border-gray-200 rounded-lg shadow-sm flex-1 flex flex-col min-h-0 overflow-hidden">
                 ${movimentos.map((m, i) => {
-                    const tId = `tab_${i}`;
-                    // Verifica se esta tabela deve ficar visível
-                    const activeContent = (tId === abaAtivaId) ? '' : 'hidden';
-                    return `
+            const tId = `tab_${i}`;
+            // Verifica se esta tabela deve ficar visível
+            const activeContent = (tId === abaAtivaId) ? '' : 'hidden';
+            return `
                     <div id="${tId}" class="tab-content ${activeContent} flex-1 overflow-y-auto overflow-x-auto">
                         <table class="w-full text-center border-collapse relative select-none min-w-[800px]">
                             <thead class="sticky top-0 z-20 shadow-sm bg-gray-100">
@@ -304,17 +429,17 @@
                                     <th class="p-2 bg-slate-800 text-white w-20" rowspan="2">Diff %</th>
                                 </tr>
                                 <tr class="bg-gray-50 border-b-2 border-gray-300 text-[9px] font-bold">
-                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Carro', 'H', event)" title="Alternar coluna H">H</th>
-                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Carro', 'IA', event)" title="Alternar coluna IA">IA</th>
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Carro', 'H', event)" title="Alternar coluna H">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Carro', 'IA', event)" title="Alternar coluna IA">IA</th>
                                     
-                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Moto', 'H', event)">H</th>
-                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Moto', 'IA', event)">IA</th>
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Moto', 'H', event)">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Moto', 'IA', event)">IA</th>
                                     
-                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Ônibus', 'H', event)">H</th>
-                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Ônibus', 'IA', event)">IA</th>
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Ônibus', 'H', event)">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Ônibus', 'IA', event)">IA</th>
                                     
-                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Caminhão', 'H', event)">H</th>
-                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado?'':'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Caminhão', 'IA', event)">IA</th>
+                                    <th class="p-1 border-r border-gray-200 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Caminhão', 'H', event)">H</th>
+                                    <th class="p-1 border-r border-gray-200 bg-indigo-50/50 text-indigo-700 ${projetoAprovado ? '' : 'cursor-pointer hover:bg-emerald-100 transition'}" onclick="selecionarColunaInteira('${m}', 'Caminhão', 'IA', event)">IA</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 text-sm">
@@ -322,10 +447,12 @@
                             </tbody>
                         </table>
                     </div>`;
-                }).join('')}
+        }).join('')}
             </div>`;
 
         contentDiv.innerHTML = html;
+
+        validarEstadoAprovacao()
 
         // 🔴 DEPOIS DE RE CRIAR: Restaura a posição da rolagem de volta de onde parou
         document.querySelectorAll('.tab-content').forEach(el => {
@@ -334,71 +461,105 @@
             }
         });
     }
-    
+
     function renderizarLinhaAudit(r, movimento) {
         const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
         let totalH = 0, totalIA = 0;
+        let temDadoHumano = false; // Flag para saber se a linha toda é '-'
 
         let cells = categorias.map(cat => {
-            const valH = r[cat] || 0;
-            const valIA = r.ia_data[cat] || 0;
-            totalH += valH; totalIA += valIA;
+            const rawH = r[cat];
+
+            // Verifica se o dado veio do banco. (Se for o número 0, é válido. Se for null/undefined, não tem dado)
+            const hasData = rawH !== undefined && rawH !== null;
+            const valH = hasData ? rawH : '-';
+            const valIA = (r.ia_data && r.ia_data[cat] !== undefined) ? r.ia_data[cat] : 0;
+
+            if (hasData) {
+                totalH += valH;
+                temDadoHumano = true; // Achamos pelo menos um dado humano na linha
+            }
+            totalIA += valIA;
 
             const key = `${r.interval}|${movimento}|${cat}`;
             const sourceSel = auditoriaSelecoes[key];
 
-            const diffAbs = Math.abs(valIA - valH);
-            const diffPct = valH > 0 ? diffAbs / valH : (valIA > 0 ? 1 : 0);
+            let diffAbs = 0;
+            let diffPct = 0;
 
-            let colorH = "text-gray-700";
+            let colorH = hasData ? "text-gray-700" : "text-gray-400 font-light opacity-60";
             let colorIA = "text-indigo-700 font-bold";
             let bgAlert = "";
 
-            if (diffPct > 0.05) {
-                if (diffPct <= 0.10 || diffAbs < 3) {
-                    colorH = "text-amber-600 font-bold"; colorIA = "text-amber-600 font-bold"; bgAlert = "bg-amber-50/40";
-                } else {
-                    colorH = "text-red-600 font-black"; colorIA = "text-red-600 font-black"; bgAlert = "bg-red-50/40";
+            // Só calcula alertas de divergência SE o humano realmente contou
+            if (hasData) {
+                diffAbs = Math.abs(valIA - valH);
+                diffPct = valH > 0 ? diffAbs / valH : (valIA > 0 ? 1 : 0);
+
+                const limites = obterLimitesCategoria(cat);
+
+                // Se não passou na regra Verde, vamos ver qual cor aplicar
+                if (diffPct > limites.pctVerde && diffAbs > limites.absVerde) {
+
+                    // Se passou na regra Amarela, pinta de Amarelo
+                    if (diffPct <= limites.pctAmarelo || diffAbs <= limites.absAmarelo) {
+                        colorH = "text-amber-600 font-bold"; colorIA = "text-amber-600 font-bold"; bgAlert = "bg-amber-50/40";
+                    } else {
+                        // Se não, é Vermelho
+                        colorH = "text-red-600 font-black"; colorIA = "text-red-600 font-black"; bgAlert = "bg-red-50/40";
+                    }
                 }
             }
 
             const isSelH = sourceSel === "H";
             const isSelIA = sourceSel === "IA";
-            
-            // Remove as classes de hover se estiver congelado
-            const hoverClass = projetoAprovado ? '' : 'hover:bg-slate-200';
-            const cursorClass = projetoAprovado ? 'cursor-default' : 'cursor-pointer';
 
-            const bgH = isSelH ? "bg-emerald-200 shadow-inner border-emerald-400" : `${hoverClass} border-gray-100/50 ${bgAlert}`;
-            const bgIA = isSelIA ? "bg-emerald-200 shadow-inner border-emerald-400" : `${hoverClass} border-gray-100 ${bgAlert}`;
+            // Lógica de Hover e Clique: Não deixa clicar em "H" se não tem dado humano (-)
+            const hoverClassH = (projetoAprovado || !hasData) ? 'cursor-default' : 'cursor-pointer hover:bg-slate-200';
+            const hoverClassIA = projetoAprovado ? 'cursor-default' : 'cursor-pointer hover:bg-slate-200';
+
+            const bgH = isSelH ? "bg-emerald-200 shadow-inner border-emerald-400" : `${hoverClassH} border-gray-100/50 ${bgAlert}`;
+            const bgIA = isSelIA ? "bg-emerald-200 shadow-inner border-emerald-400" : `${hoverClassIA} border-gray-100 ${bgAlert}`;
+
+            // Desliga a função onclick do H se não houver dados
+            const clickH = (!projetoAprovado && hasData) ? `onclick="toggleSelecaoCelula('${key}', 'H', event)"` : '';
+            const clickIA = !projetoAprovado ? `onclick="toggleSelecaoCelula('${key}', 'IA', event)"` : '';
 
             return `
-                <td class="p-2.5 border-r transition-all ${cursorClass} ${bgH} ${colorH}" 
-                    onclick="toggleSelecaoCelula('${key}', 'H', event)">${valH}</td>
-                <td class="p-2.5 border-r transition-all ${cursorClass} ${bgIA} ${colorIA}" 
-                    onclick="toggleSelecaoCelula('${key}', 'IA', event)">${valIA}</td>
+                <td class="p-2.5 border-r transition-all ${bgH} ${colorH}" ${clickH}>${valH}</td>
+                <td class="p-2.5 border-r transition-all ${bgIA} ${colorIA}" ${clickIA}>${valIA}</td>
             `;
         }).join('');
 
-        const diff = totalH > 0 ? ((totalIA - totalH) / totalH * 100).toFixed(1) : (totalIA > 0 ? 100 : 0);
-        let colorLine = 'text-emerald-600';
+        // Linha do Total: Se não tem nenhum dado humano, a divergência global é ignorada ('-')
+        let diffDisplay = '-';
+        let colorLine = 'text-gray-400 font-light';
         let bgLineAlert = '';
 
-        if (Math.abs(diff) > 15) {
-            colorLine = 'text-red-600'; bgLineAlert = 'bg-red-50/20'; 
-        } else if (Math.abs(diff) > 0) {
-            colorLine = 'text-amber-600';
+        if (temDadoHumano) {
+            const diff = totalH > 0 ? ((totalIA - totalH) / totalH * 100).toFixed(1) : (totalIA > 0 ? 100 : 0);
+            diffDisplay = `${diff}%`;
+            colorLine = 'text-emerald-600 font-black';
+
+            if (Math.abs(diff) > 15) {
+                colorLine = 'text-red-600 font-black'; bgLineAlert = 'bg-red-50/20';
+            } else if (Math.abs(diff) > 0) {
+                colorLine = 'text-amber-600 font-black';
+            }
         }
 
         const cursorLinha = projetoAprovado ? 'cursor-default' : 'cursor-pointer hover:bg-indigo-100';
 
+        // 🔴 NOVO: Fundo e borda azul para identificar que esta linha é uma amostra validada pelo Freela
+        const bgAmostra = r.is_sample ? 'bg-blue-50/70 border-l-4 border-blue-500' : 'bg-slate-50/50';
+
         return `
             <tr class="hover:bg-slate-100 transition-colors ${bgLineAlert}">
-                <td class="p-2 border-r border-gray-100 text-left bg-slate-50/50 font-bold ${cursorLinha} transition-colors" onclick="selecionarLinhaInteligente('${movimento}', '${r.interval}', event)">
-                    <div class="font-mono">${r.interval}</div>
+                <td class="p-2 border-r border-gray-100 text-left font-bold ${bgAmostra} ${cursorLinha} transition-colors" onclick="selecionarLinhaInteligente('${movimento}', '${r.interval}', event)">
+                    <div class="font-mono ${r.is_sample ? 'text-blue-800' : ''}">${r.interval} ${r.is_sample ? '🔍' : ''}</div>
                 </td>
                 ${cells}
-                <td class="p-2 bg-slate-50 font-black ${colorLine}">${diff}%</td>
+                <td class="p-2 bg-slate-50 ${colorLine}">${diffDisplay}</td>
             </tr>`;
     }
 
@@ -406,27 +567,28 @@
 
     function toggleSelecaoCelula(key, source, event) {
         if (event) event.stopPropagation();
-        verificarDescongelamento() 
+        verificarDescongelamento()
 
         if (auditoriaSelecoes[key] === source) delete auditoriaSelecoes[key];
         else auditoriaSelecoes[key] = source;
-        
+
         renderizarTabelaAuditoria(dadosAtuais.data);
+        validarEstadoAprovacao()
     }
 
     function selecionarLinhaInteligente(movimento, interval, event) {
         if (event) event.stopPropagation();
-        verificarDescongelamento() 
+        verificarDescongelamento()
 
         const r = dadosAtuais.data.find(x => x.movement === movimento && x.interval === interval);
-        if(!r) return;
-        
+        if (!r) return;
+
         const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
         const keys = categorias.map(c => `${interval}|${movimento}|${c}`);
-        
+
         // Lógica de Toggle: Se todos da linha já estiverem selecionados (seja H ou IA), nós limpamos a linha.
         const todosSelecionados = keys.every(k => auditoriaSelecoes[k]);
-        
+
         if (todosSelecionados) {
             keys.forEach(k => delete auditoriaSelecoes[k]); // Limpa tudo
         } else {
@@ -435,20 +597,20 @@
                 const valH = r[cat] || 0;
                 const valIA = r.ia_data[cat] || 0;
                 const diffPct = valH > 0 ? Math.abs(valIA - valH) / valH : (valIA > 0 ? 1 : 0);
-                
+
                 const key = `${interval}|${movimento}|${cat}`;
                 auditoriaSelecoes[key] = diffPct <= 0.05 ? "IA" : "H";
             });
         }
-        
+
         renderizarTabelaAuditoria(dadosAtuais.data);
     }
 
     function selecionarColunaInteira(movimento, categoria, source, event) {
         if (event) event.stopPropagation();
-        verificarDescongelamento() 
+        verificarDescongelamento()
         const records = dadosAtuais.data.filter(r => r.movement === movimento);
-        
+
         // Lógica de Toggle: Verifica se TODAS as linhas dessa coluna já estão com a 'source' clicada
         const todosDestaSource = records.every(r => auditoriaSelecoes[`${r.interval}|${movimento}|${categoria}`] === source);
 
@@ -466,11 +628,303 @@
 
     function mudarAba(tabId, btn) {
         abaAtivaId = tabId; // 🔴 Memoriza a aba clicada
-        
+
         document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
         document.getElementById(tabId).classList.remove('hidden');
         document.querySelectorAll('.tab-btn').forEach(b => b.className = "tab-btn px-5 py-2.5 border-b-2 font-bold text-sm rounded-t-lg border-transparent text-gray-500 bg-gray-50 hover:bg-gray-100");
         btn.className = "tab-btn px-5 py-2.5 border-b-2 font-bold text-sm rounded-t-lg border-slate-500 text-slate-800 bg-slate-100";
+    }
+
+    // Deixe os dados acessíveis globalmente para o Modal poder ler depois
+    let dadosGlobaisAuditoria = [];
+
+    function validarEstadoAprovacao() {
+        if (!dadosGlobaisAuditoria || dadosGlobaisAuditoria.length === 0) return;
+
+        let todasPreenchidas = true;
+        const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
+
+        dadosGlobaisAuditoria.forEach(r => {
+            categorias.forEach(cat => {
+                const key = `${r.interval}|${r.movement}|${cat}`;
+                if (!auditoriaSelecoes[key]) {
+                    todasPreenchidas = false;
+                }
+            });
+        });
+
+        const btnAprovar = document.getElementById('btn-aprovar');
+        if (btnAprovar) {
+            if (todasPreenchidas) {
+                btnAprovar.disabled = false;
+                btnAprovar.classList.remove('bg-gray-400', 'cursor-not-allowed', 'opacity-60');
+                btnAprovar.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                btnAprovar.title = "Aprovar e finalizar projeto";
+            } else {
+                btnAprovar.disabled = true;
+                btnAprovar.classList.add('bg-gray-400', 'cursor-not-allowed', 'opacity-60');
+                btnAprovar.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                btnAprovar.title = "Resolva todas as células em branco antes de aprovar";
+            }
+        }
+    }
+
+    // --- FUNÇÕES AUXILIARES DO MODAL ---
+    function abrirModalRecontar() {
+        const container = document.getElementById('conteudo-modal-recontar');
+        const categorias = ["Carro", "Moto", "Ônibus", "Caminhão"];
+        
+        // 1. Vasculha, agrupa por FAIXA DE 1 HORA e mescla as pendências
+        const pendencias = {}; 
+        
+        dadosGlobaisAuditoria.forEach(r => {
+            const mov = r.movement;
+            
+            // Pega os 2 primeiros caracteres do intervalo (Ex: "08:15" -> "08") e cria a faixa "08:00 - 09:00"
+            const horaInicial = r.interval.split(':')[0];
+            const nextHora = String((parseInt(horaInicial) + 1) % 24).padStart(2, '0');
+            const faixaHoraria = `${horaInicial}:00 - ${nextHora}:00`;
+
+            let temPendenciaNaLinha = false;
+            const pendenciasAtuais = {};
+
+            categorias.forEach(cat => {
+                const key = `${r.interval}|${mov}|${cat}`;
+                if (!auditoriaSelecoes[key]) {
+                    temPendenciaNaLinha = true;
+                    pendenciasAtuais[cat] = true;
+                }
+            });
+
+            if (temPendenciaNaLinha) {
+                if (!pendencias[mov]) pendencias[mov] = {};
+                // Cria a faixa horária se ela ainda não existir
+                if (!pendencias[mov][faixaHoraria]) {
+                    pendencias[mov][faixaHoraria] = { cats: {}, is_sample: false, slice_id: r.slice_id, task_id: r.task_id };
+                }
+
+                // Se qualquer bloco de 15 min falhou numa categoria, a hora inteira falha para ela
+                categorias.forEach(cat => {
+                    if (pendenciasAtuais[cat]) {
+                        pendencias[mov][faixaHoraria].cats[cat] = true;
+                    }
+                });
+
+                // Se houver qualquer amostra dentro dessa 1 hora, marcamos a faixa toda como amostra
+                if (r.is_sample) {
+                    pendencias[mov][faixaHoraria].is_sample = true;
+                }
+            }
+        });
+
+        const movimentos = Object.keys(pendencias);
+
+        if (movimentos.length === 0) {
+            container.innerHTML = `
+                <div class="text-center p-12 text-gray-500 font-bold text-lg flex flex-col items-center gap-4">
+                    <span class="text-6xl">🎉</span>
+                    <span>Não há pendências para recontagem.<br>Você pode aprovar o relatório!</span>
+                </div>`;
+            container.className = "flex-1 flex items-center justify-center bg-gray-50";
+            document.querySelector('#modalRecontar button.bg-orange-500').classList.add('hidden');
+            document.getElementById('modalRecontar').classList.remove('hidden');
+            return;
+        }
+
+        document.querySelector('#modalRecontar button.bg-orange-500').classList.remove('hidden');
+        container.className = "flex flex-col flex-1 min-h-0 bg-white";
+
+        let html = `<div class="flex overflow-x-auto border-b border-gray-300 bg-slate-100 px-6 pt-3 gap-1 shrink-0 custom-scrollbar">`;
+        movimentos.forEach((mov, index) => {
+            const activeClass = index === 0 
+                ? 'border-orange-500 text-orange-700 bg-white shadow-sm' 
+                : 'border-transparent text-gray-500 hover:bg-gray-200 hover:text-gray-800';
+            
+            html += `
+                <button onclick="mudarAbaModal('${mov}', this, ${index})" class="tab-btn-modal px-6 py-2.5 border-t border-l border-r border-b-2 font-bold text-sm rounded-t-lg transition-all ${activeClass} -mb-[1px]">
+                    🛣️ ${mov}
+                </button>
+            `;
+        });
+        html += `</div>`;
+
+        html += `<div class="p-6 bg-slate-50 flex-1 overflow-y-auto custom-scrollbar">`;
+        movimentos.forEach((mov, index) => {
+            const activeContent = index === 0 ? 'block' : 'hidden';
+            html += `
+                <div id="modal-tab-${index}" class="tab-content-modal ${activeContent}">
+                    <div class="bg-white border border-gray-300 rounded-xl shadow-sm overflow-hidden">
+                        <table class="w-full text-center border-collapse select-none">
+                            <thead class="bg-slate-700 text-white text-[11px] uppercase tracking-widest">
+                                <tr>
+                                    <th class="p-3 border-r border-slate-600 text-left w-48">Faixa Horária</th>
+                                    <th class="p-2 border-r border-slate-600 w-[18%] hover:bg-slate-600 transition-colors">
+                                        <label class="flex items-center justify-center gap-1.5 cursor-pointer w-full h-full">
+                                            <input type="checkbox" class="accent-orange-500 w-3.5 h-3.5 cursor-pointer rounded" checked onchange="toggleColunaModal('${mov}', 'Carro', this.checked)">
+                                            🚗 Carro
+                                        </label>
+                                    </th>
+                                    <th class="p-2 border-r border-slate-600 w-[18%] hover:bg-slate-600 transition-colors">
+                                        <label class="flex items-center justify-center gap-1.5 cursor-pointer w-full h-full">
+                                            <input type="checkbox" class="accent-orange-500 w-3.5 h-3.5 cursor-pointer rounded" checked onchange="toggleColunaModal('${mov}', 'Moto', this.checked)">
+                                            🏍️ Moto
+                                        </label>
+                                    </th>
+                                    <th class="p-2 border-r border-slate-600 w-[18%] hover:bg-slate-600 transition-colors">
+                                        <label class="flex items-center justify-center gap-1.5 cursor-pointer w-full h-full">
+                                            <input type="checkbox" class="accent-orange-500 w-3.5 h-3.5 cursor-pointer rounded" checked onchange="toggleColunaModal('${mov}', 'Ônibus', this.checked)">
+                                            🚌 Ônibus
+                                        </label>
+                                    </th>
+                                    <th class="p-2 w-[18%] hover:bg-slate-600 transition-colors">
+                                        <label class="flex items-center justify-center gap-1.5 cursor-pointer w-full h-full">
+                                            <input type="checkbox" class="accent-orange-500 w-3.5 h-3.5 cursor-pointer rounded" checked onchange="toggleColunaModal('${mov}', 'Caminhão', this.checked)">
+                                            🚚 Caminhão
+                                        </label>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 text-sm">
+            `;
+
+            // Pega as faixas horárias desta aba e as ordena (ex: 08:00 antes de 09:00)
+            const faixas = Object.keys(pendencias[mov]).sort();
+
+            faixas.forEach(faixa => {
+                const rowData = pendencias[mov][faixa];
+                
+                // 🔴 LÓGICA DO AZUL: Aplica a mesma cor da tabela de auditoria se for amostra
+                const bgHorario = rowData.is_sample ? 'bg-blue-50/70 border-l-4 border-blue-500' : 'bg-gray-50';
+                const textColor = rowData.is_sample ? 'text-blue-800' : 'text-slate-800';
+                const cursorHover = rowData.is_sample ? 'cursor-default' : 'cursor-pointer hover:bg-gray-200/50';
+                
+                let rowHtml = `
+                    <td class="border-r border-gray-200 ${bgHorario} text-left font-mono font-bold p-0 transition-colors">
+                        <label class="flex items-center gap-2 w-full h-full py-3 px-4 ${cursorHover} ${textColor}">
+                            ${rowData.is_sample 
+                                ? `<span class="w-4 h-4 flex items-center justify-center text-sm">🔍</span>` 
+                                : `<input type="checkbox" class="accent-slate-500 w-4 h-4 cursor-pointer rounded" checked onchange="toggleLinhaModal('${mov}', '${faixa}', this.checked)">`
+                            }
+                            ${faixa}
+                        </label>
+                    </td>
+                `;
+
+                categorias.forEach(cat => {
+                    if (rowData.cats[cat]) {
+                        if (rowData.is_sample) {
+                            // 🔴 Amostra Reprovada: Fundo azul bebê, texto limpo, sem checkbox
+                            rowHtml += `
+                                <td class="border-r border-blue-100 bg-blue-50/40 p-0">
+                                    <div class="flex items-center justify-center w-full h-full py-3 text-blue-700 font-bold text-[10px] tracking-widest uppercase">
+                                        Validado
+                                    </div>
+                                </td>
+                            `;
+                        } else {
+                            // Célula Normal de Recontagem: Checkbox Laranja
+                            rowHtml += `
+                                <td class="border-r border-gray-200 bg-orange-50/60 hover:bg-orange-100 transition-colors p-0">
+                                    <label class="flex items-center justify-center w-full h-full py-3 cursor-pointer">
+                                        <input type="checkbox" class="recontar-checkbox accent-orange-600 w-5 h-5 cursor-pointer rounded shadow-sm transition-all" 
+       value="${cat}" data-task="${rowData.task_id}" data-mov="${mov}" data-interval="${faixa}" data-slice="${rowData.slice_id}" checked>
+                                    </label>
+                                </td>
+                            `;
+                        }
+                    } else {
+                        // Não há pendência para esta categoria nesta faixa
+                        rowHtml += `
+                            <td class="border-r border-gray-200 bg-white p-3">
+                                <span class="text-emerald-500 opacity-20 font-black text-lg leading-none">✓</span>
+                            </td>
+                        `;
+                    }
+                });
+
+                html += `<tr class="hover:bg-slate-50/50 transition-colors opacity-100">${rowHtml}</tr>`;
+            });
+
+            html += `</tbody></table></div></div>`;
+        });
+        html += `</div>`;
+
+        container.innerHTML = html;
+        document.getElementById('modalRecontar').classList.remove('hidden');
+    }
+
+    function mudarAbaModal(mov, btn, index) {
+        document.querySelectorAll('.tab-btn-modal').forEach(b => {
+            b.classList.remove('border-orange-500', 'text-orange-700', 'bg-white', 'shadow-sm');
+            b.classList.add('border-transparent', 'text-gray-500');
+        });
+        btn.classList.remove('border-transparent', 'text-gray-500');
+        btn.classList.add('border-orange-500', 'text-orange-700', 'bg-white', 'shadow-sm');
+
+        document.querySelectorAll('.tab-content-modal').forEach(c => c.classList.add('hidden'));
+        document.getElementById(`modal-tab-${index}`).classList.remove('hidden');
+    }
+
+    function toggleLinhaModal(mov, interval, isChecked) {
+        const checkboxes = document.querySelectorAll(`input.recontar-checkbox[data-mov="${mov}"][data-interval="${interval}"]`);
+        checkboxes.forEach(cb => cb.checked = isChecked);
+    }
+
+    function toggleColunaModal(mov, cat, isChecked) {
+        const checkboxes = document.querySelectorAll(`input.recontar-checkbox[data-mov="${mov}"][value="${cat}"]`);
+        checkboxes.forEach(cb => cb.checked = isChecked);
+    }
+
+    async function confirmarRecontagem() {
+        const checkboxes = document.querySelectorAll('.recontar-checkbox');
+        let tasksParaManter = new Set(); // 🔴 Agora vai guardar só os IDs das tarefas
+        let ignorados = [];
+
+        checkboxes.forEach(cb => {
+            const taskId = parseInt(cb.getAttribute('data-task')); // Pega o ID da Tarefa
+            const mov = cb.getAttribute('data-mov');
+            const faixa = cb.getAttribute('data-interval'); 
+            const cat = cb.value;
+
+            if (cb.checked) {
+                if (!isNaN(taskId)) tasksParaManter.add(taskId);
+            } else {
+                ignorados.push({ mov, faixa, cat });
+            }
+        });
+
+        // (Mantenha o seu código que preenche a auditoriaSelecoes com "IA" aqui)
+
+        const btn = document.querySelector('#modalRecontar button.bg-orange-500');
+        btn.innerHTML = "Processando...";
+        btn.disabled = true;
+
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const projectId = projetoAtualId
+            
+            const response = await fetch(`/api/admin/projects/${projectId}/confirm-recount`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    selections: auditoriaSelecoes,
+                    keep_tasks: Array.from(tasksParaManter) // 🔴 Envia [104, 105, 112]
+                })
+            });
+
+            if (response.ok) {
+                alert("✅ Sucesso! Tarefas enviadas para a Alocação.");
+                window.location.reload(); 
+            } else {
+                alert("Erro no backend.");
+                btn.innerHTML = "Confirmar e Enviar para Alocação";
+                btn.disabled = false;
+            }
+        } catch(e) {
+            console.error(e);
+            btn.innerHTML = "Confirmar e Enviar para Alocação";
+            btn.disabled = false;
+        }
     }
 
     // --- APROVAÇÃO E SUBMISSÃO ---
@@ -493,7 +947,7 @@
         if (finalData.length === 0) return alert("Selecione ao menos uma célula para aprovar.");
         if (!confirm(`Deseja consolidar e aprovar os dados?`)) return;
 
-        const btn = document.getElementById('btn-aprovar-auditoria');
+        const btn = document.getElementById('btn-aprovar');
         const originalText = btn.innerHTML;
         btn.innerHTML = "⏳ Consolidando..."; btn.disabled = true;
 
@@ -505,17 +959,21 @@
                 body: JSON.stringify({ final_data: finalData, selections_map: auditoriaSelecoes })
             });
             const data = await res.json();
-            
+
             projetoAprovado = true;
             btn.style.display = 'none';
             document.getElementById('ia-status-global').innerHTML = '🔒 Dados Congelados';
             document.getElementById('ia-status-global').className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-800 border border-indigo-300 shadow-sm flex items-center ml-2';
-            
+
             renderizarTabelaAuditoria(dadosAtuais.data);
             alert(`✅ ${data.message}`);
-        } catch (e) { 
+
+            if (typeof atualizarBadgesSidebar === 'function') {
+                atualizarBadgesSidebar(); 
+            }
+        } catch (e) {
             alert("Erro ao salvar."); btn.innerHTML = originalText; btn.disabled = false;
-        } 
+        }
     }
 
     document.addEventListener('DOMContentLoaded', carregarProjetos);

@@ -1,18 +1,22 @@
 import os
 import json
 import re
-from typing import List
+from typing import List, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from pydantic import BaseModel
 
 from database import get_db
 from models import (Project, Zone, Movement, Video, VideoStatus, MovementTask, 
-                    CountRecord, VideoSlice, SliceStatus, Client, User, WorkPackage)
+                    CountRecord, VideoSlice, SliceStatus, Client, User, WorkPackage, MovementTask)
 from web import schemas
+import pandas as pd
+import io
+from datetime import datetime
 
 router = APIRouter()
 
@@ -43,10 +47,17 @@ def render_admin_dashboard(request: Request):
 @router.get("/videos/staged")
 def get_staged_videos(db: Session = Depends(get_db)):
     videos = db.query(Video).filter(
-        Video.status.in_([VideoStatus.staged, VideoStatus.ready, VideoStatus.configured])
+        Video.status.in_([
+            VideoStatus.staged, 
+            VideoStatus.ready, 
+            VideoStatus.configured, 
+            VideoStatus.processing,
+            VideoStatus.approved,
+        ])
     ).all()
     
     for v in videos:
+        # Só atualiza para configured se estiver ready (não mexe nos processing)
         if v.status == VideoStatus.ready and v.project and v.project.zones:
             v.status = VideoStatus.configured
             db.commit()
@@ -71,6 +82,7 @@ def get_staged_videos(db: Session = Depends(get_db)):
             "id": v.id,
             "original_filename": v.original_filename,
             "status": v.status,
+            "is_validation": v.is_validation,
             "frame_urls": frame_urls,
             "zones": [{"name": z.name, "geometry": z.geometry} for z in v.project.zones] if v.project else [],
             "project": {
@@ -143,22 +155,6 @@ def mark_video_ready(video_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Vídeo marcado como pronto."}
 
-@router.patch("/videos/{video_id}/revert") 
-def revert_video_to_staging(video_id: int, db: Session = Depends(get_db)):
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
-        
-    for fatia in video.slices:
-        tarefas_ids = [t.id for t in fatia.tasks]
-        if tarefas_ids:
-            db.query(CountRecord).filter(CountRecord.task_id.in_(tarefas_ids)).delete(synchronize_session=False)
-        db.query(MovementTask).filter(MovementTask.slice_id == fatia.id).delete(synchronize_session=False)
-        
-    db.query(VideoSlice).filter(VideoSlice.video_id == video.id).delete(synchronize_session=False)
-    video.status = "ready" 
-    db.commit()
-    return {"message": "Vídeo revertido e limpo com sucesso!"}
 
 # ==========================================
 # CONFIGURAÇÃO DE PROJETOS E FATIAS
@@ -261,11 +257,21 @@ def save_project_config(project_id: int, payload: schemas.ProjectConfigCreate, d
 
 @router.patch("/projects/{project_id}/approve")
 def approve_project_for_ai(project_id: int, db: Session = Depends(get_db)):
+    from models import Project, Video, VideoSlice, MovementTask, VideoStatus, SliceStatus
+    
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project or not project.movements:
         raise HTTPException(status_code=400, detail="Desenhe as zonas e salve os Movimentos!")
         
-    videos = db.query(Video).filter(Video.project_id == project_id, Video.status == VideoStatus.configured).all()
+    # 🔴 FIX: Busca de forma flexível (tanto configured quanto ready)
+    videos = db.query(Video).filter(
+        Video.project_id == project_id, 
+        Video.status.in_([VideoStatus.configured, "configured", VideoStatus.ready, "ready"])
+    ).all()
+    
+    if not videos:
+        raise HTTPException(status_code=400, detail="Nenhum vídeo válido encontrado para avançar.")
+
     for v in videos:
         slices_to_process = v.slices
         if not slices_to_process:
@@ -276,7 +282,12 @@ def approve_project_for_ai(project_id: int, db: Session = Depends(get_db)):
             
         for sl in slices_to_process:
             for mov in project.movements:
-                db.add(MovementTask(slice_id=sl.id, movement_id=mov.id, status=SliceStatus.pending))
+                # Prevenção extra: só cria a tarefa se ela não existir, evitando duplicações no vai-e-vem
+                existe = db.query(MovementTask).filter(MovementTask.slice_id == sl.id, MovementTask.movement_id == mov.id).first()
+                if not existe:
+                    db.add(MovementTask(slice_id=sl.id, movement_id=mov.id, status=SliceStatus.pending))
+                    
+        # Avança o status oficialmente usando o Enum correto
         v.status = VideoStatus.approved
         
     db.commit()
@@ -291,12 +302,17 @@ def allocation_page(request: Request):
 
 @router.get("/allocation/data")
 def get_allocation_data(db: Session = Depends(get_db)):
+    from sqlalchemy import text 
+    from models import User, Video, VideoStatus, WorkPackage
+    
+    db.execute(text("UPDATE videos SET status = 'processing' WHERE status = 'recounting'"))
+    db.commit()
+
     freelas = db.query(User).filter(User.role == "freelancer").all()
+    
     videos = db.query(Video).filter(
         Video.status.in_([
-            VideoStatus.approved, "approved", 
             VideoStatus.processing, "processing", 
-            VideoStatus.completed, "completed",
             VideoStatus.configured, "configured"
         ])
     ).all()
@@ -304,9 +320,23 @@ def get_allocation_data(db: Session = Depends(get_db)):
     video_list = []
     for v in videos:
         slices_data = []
+        # 🔴 NOVA INTELIGÊNCIA: Rastreador de pendências no vídeo
+        tem_pendencia_no_video = False 
+
         for sl in v.slices:
             tasks_data = []
             for t in sl.tasks:
+                status_valor = t.status.value if hasattr(t.status, 'value') else str(t.status).replace("SliceStatus.", "")
+                
+                # Ignora as que a IA matou
+                if status_valor == "completed" and t.assigned_to is None:
+                    continue
+                
+                # 🔴 SE ACHOU QUALQUER COISA QUE NÃO ESTEJA CONCLUÍDA (pending, assigned, etc.)
+                # Então esse vídeo precisa ir pra tela!
+                if status_valor != "completed":
+                    tem_pendencia_no_video = True
+                
                 freela_name = None
                 if t.assigned_to:
                     user_obj = db.query(User).filter(User.id == t.assigned_to).first()
@@ -317,8 +347,6 @@ def get_allocation_data(db: Session = Depends(get_db)):
                     pacote = db.query(WorkPackage).filter(WorkPackage.id == t.work_package_id).first()
                     if pacote: package_name = pacote.name
                 
-                status_valor = t.status.value if hasattr(t.status, 'value') else str(t.status).replace("SliceStatus.", "")
-                
                 tasks_data.append({
                     "id": t.id,
                     "movement_name": t.movement.name if t.movement else "Movimento",
@@ -327,18 +355,22 @@ def get_allocation_data(db: Session = Depends(get_db)):
                     "package_name": package_name
                 })
             
-            slices_data.append({
-                "id": sl.id, "name": sl.name, "start_time": sl.start_time, "end_time": sl.end_time,
-                "tasks": tasks_data, "videoId": v.id, "filename": v.original_filename
-            })
+            if len(tasks_data) > 0:
+                slices_data.append({
+                    "id": sl.id, "name": sl.name, "start_time": sl.start_time, "end_time": sl.end_time,
+                    "tasks": tasks_data, "videoId": v.id, "filename": v.original_filename
+                })
             
-        video_list.append({
-            "id": v.id, 
-            "filename": v.original_filename, 
-            "project_name": v.project.name if v.project else "Sem Projeto", 
-            "client_name": v.project.client.name if v.project and v.project.client else "Sem Cliente",
-            "slices": slices_data
-        })
+        # TRAVA ATUALIZADA: Envia o vídeo se houver qualquer fatia filtrada, 
+        # permitindo listar as tarefas concluídas na aba de baixo!
+        if len(slices_data) > 0:
+            video_list.append({
+                "id": v.id, 
+                "filename": v.original_filename, 
+                "project_name": v.project.name if v.project else "Sem Projeto", 
+                "client_name": v.project.client.name if v.project and v.project.client else "Sem Cliente",
+                "slices": slices_data
+            })
         
     return {
         "freelancers": [{"id": f.id, "name": f.name} for f in freelas],
@@ -370,6 +402,11 @@ def assign_tasks_bulk(payload: AssignTasksPayload, db: Session = Depends(get_db)
 @router.post("/api/admin/work-packages")
 def create_work_package(payload: CreateWorkPackageRequest, db: Session = Depends(get_db)):
     primeira_tarefa = db.query(MovementTask).filter(MovementTask.id == payload.task_ids[0]).first()
+    
+    # Se nem a primeira tarefa for achada, os IDs já estão velhos
+    if not primeira_tarefa:
+        raise HTTPException(status_code=400, detail="As tarefas selecionadas não existem mais no banco. Por favor, atualize a página (F5).")
+        
     fatia = db.query(VideoSlice).filter(VideoSlice.id == primeira_tarefa.slice_id).first() if primeira_tarefa else None
     video = db.query(Video).filter(Video.id == fatia.video_id).first() if fatia else None
     projeto_id = video.project_id if video else None
@@ -392,13 +429,77 @@ def create_work_package(payload: CreateWorkPackageRequest, db: Session = Depends
         db.flush()
         pacote_ativo_id = novo_pacote.id
     
-    db.query(MovementTask).filter(MovementTask.id.in_(payload.task_ids)).update({
+    # 🔴 TRAVA DE SEGURANÇA: Salva a quantidade de linhas que o banco atualizou
+    linhas_atualizadas = db.query(MovementTask).filter(MovementTask.id.in_(payload.task_ids)).update({
         "work_package_id": pacote_ativo_id, "assigned_to": payload.freelancer_id, "status": "pending"
     }, synchronize_session=False)
+    
+    # Se o banco não atualizou ninguém, é porque os checkboxes mandaram fantasmas!
+    if linhas_atualizadas == 0:
+        db.rollback() # Cancela a criação do pacote
+        raise HTTPException(status_code=400, detail="Nenhuma tarefa atualizada. Atualize a página de Alocação e tente novamente.")
+        
     db.commit()
     
     msg = "Tarefas adicionadas ao lote existente!" if pacote_existente else "Novo Lote criado!"
     return {"message": msg, "package_id": pacote_ativo_id}
+
+@router.patch("/videos/{video_id}/toggle-validation")
+def toggle_video_validation(video_id: int, db: Session = Depends(get_db)):
+    from models import Video, VideoSlice, MovementTask # Garanta que os modelos estão importados
+    
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado.")
+    
+    # Inverte o status
+    video.is_validation = not video.is_validation
+    
+    # 🔴 LÓGICA DE LIMPEZA:
+    # Se você acabou de DESMARCAR a validação, precisamos desatribuir os freelas
+    if video.is_validation is False:
+        # Busca todas as fatias desse vídeo
+        slice_ids = [s.id for s in video.slices]
+        
+        if slice_ids:
+            # Busca todas as tarefas dessas fatias e limpa o campo assigned_to e work_package
+            db.query(MovementTask).filter(
+                MovementTask.slice_id.in_(slice_ids)
+            ).update({
+                "assigned_to": None,
+                "work_package_id": None
+            }, synchronize_session=False)
+            
+    db.commit()
+    
+    return {
+        "message": "Status atualizado e atribuições limpas", 
+        "is_validation": video.is_validation
+    }
+
+@router.patch("/videos/{video_id}/revert") 
+def revert_video_to_staging(video_id: int, db: Session = Depends(get_db)):
+    from models import Video, VideoSlice, MovementTask, CountRecord, VideoStatus
+    
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
+        
+    for fatia in video.slices:
+        tarefas_ids = [t.id for t in fatia.tasks]
+        if tarefas_ids:
+            db.query(CountRecord).filter(CountRecord.task_id.in_(tarefas_ids)).delete(synchronize_session=False)
+        db.query(MovementTask).filter(MovementTask.slice_id == fatia.id).delete(synchronize_session=False)
+        
+    db.query(VideoSlice).filter(VideoSlice.video_id == video.id).delete(synchronize_session=False)
+    
+    # 🔴 FIX: Limpa a flag de validação e usa o Enum correto pro status
+    video.status = VideoStatus.ready 
+    video.is_validation = False
+    
+    db.commit()
+    return {"message": "Vídeo revertido e limpo com sucesso!"}
+
 
 # ==========================================
 # RELATÓRIOS
@@ -407,9 +508,44 @@ def create_work_package(payload: CreateWorkPackageRequest, db: Session = Depends
 def view_reports_page(request: Request):
     return templates.TemplateResponse(request=request, name="reports.html")
 
+@router.get("/api/admin/reports/completed")
+def get_completed_reports(db: Session = Depends(get_db)):
+    from models import Project, Client
+    
+    # Busca apenas projetos aprovados, ordenados do mais recente para o mais antigo
+    projetos_aprovados = db.query(Project)\
+        .join(Client)\
+        .filter(Project.status.in_(["approved", "completed"]))\
+        .order_by(Project.id.desc())\
+        .all()
+        
+    # Agrupa por Cliente mantendo a ordem do projeto mais recente
+    clientes_agrupados = {}
+    
+    for proj in projetos_aprovados:
+        cliente_nome = proj.client.name if proj.client else "Sem Cliente"
+        
+        if cliente_nome not in clientes_agrupados:
+            clientes_agrupados[cliente_nome] = {
+                "client_name": cliente_nome,
+                "projects": []
+            }
+            
+        clientes_agrupados[cliente_nome]["projects"].append({
+            "project_id": proj.id,
+            "project_name": proj.name,
+            # Se você salvou os dados finais no projeto, pode enviá-cols aqui:
+            "final_data": proj.audit_selections # ou proj.final_report_data
+        })
+        
+    # Transforma o dicionário em uma lista para o frontend
+    return {"status": "success", "data": list(clientes_agrupados.values())}
+
+
 @router.get("/api/admin/reports/{project_id}")
 def get_project_report(project_id: int, db: Session = Depends(get_db), approved_only: bool = False):
     import re
+    import random 
     from models import Project, Video, VideoSlice, Movement, MovementTask, CountRecord
     
     project = db.query(Project).filter(Project.id == project_id).first()
@@ -422,8 +558,15 @@ def get_project_report(project_id: int, db: Session = Depends(get_db), approved_
     
     report_dict = {}
 
-    # Função para gerar o esqueleto (Sempre geramos o esqueleto completo para manter a estrutura)
+    # 🔴 A sub-função com a indentação corrigida
     def preencher_esqueleto(fatia, mov_name):
+        tarefa_id = None
+        if hasattr(fatia, 'tasks') and fatia.tasks:
+            for t in fatia.tasks:
+                if t.movement and t.movement.name == mov_name:
+                    tarefa_id = t.id
+                    break
+
         match = re.search(r'(\d{2}):(\d{2})', fatia.name)
         h_start, m_start = (int(match.group(1)), int(match.group(2))) if match else (0,0)
         duracao_segundos = fatia.end_time - fatia.start_time
@@ -435,31 +578,72 @@ def get_project_report(project_id: int, db: Session = Depends(get_db), approved_
             h_out, m_out = ((min_base + 15) // 60) % 24, (min_base + 15) % 60
             txt = f"{h_in:02d}:{m_in:02d} - {h_out:02d}:{m_out:02d}"
             chave = f"{fatia.video.original_filename}|{fatia.id}|{mov_name}|{txt}"
+            
             if chave not in report_dict:
-                report_dict[chave] = {"video": fatia.video.original_filename, "movement": mov_name, "interval": txt, "sort_key": min_base, "Carro": 0, "Moto": 0, "Ônibus": 0, "Caminhão": 0, "has_data": False}
+                mock_ia = {
+                    "Carro": random.randint(10, 50),
+                    "Moto": random.randint(2, 15),
+                    "Ônibus": random.randint(0, 5),
+                    "Caminhão": random.randint(0, 8)
+                }
+                
+                report_dict[chave] = {
+                    "video": fatia.video.original_filename, 
+                    "slice_id": fatia.id,
+                    "movement": mov_name, 
+                    "task_id": tarefa_id, # 🔴 Aqui vai entrar o número perfeito!
+                    "interval": txt, 
+                    "sort_key": min_base, 
+                    "Carro": None,  
+                    "Moto": None,   
+                    "Ônibus": None, 
+                    "Caminhão": None, 
+                    "ia_data": mock_ia, 
+                    "has_data": False,
+                    "is_sample": False 
+                }
 
+    # Resto do seu código que chama a função...
     for mov in movements:
         for s in slices:
             preencher_esqueleto(s, mov.name)
 
-# BUSCA DOS CLIQUES
     slice_ids = [s.id for s in slices]
-    
-    # 🔴 A LINHA QUE FALTAVA: Precisamos buscar as tasks no banco antes de mapeá-las!
     tasks = db.query(MovementTask).filter(MovementTask.slice_id.in_(slice_ids)).all()
     
-    query_records = db.query(CountRecord).join(MovementTask).filter(MovementTask.slice_id.in_(slice_ids))
-    
-    # A MÁGICA DO FILTRO: Se approved_only for True, só pega o que foi validado na auditoria
-    if approved_only:
-        query_records = query_records.filter(CountRecord.is_approved == True)
-
-    records = query_records.all()
-
-    # Criamos os mapas seguros de memória para não depender de relacionamentos do SQLAlchemy
-    task_map = {t.id: t for t in tasks}
     slice_map = {s.id: s for s in slices}
     video_map = {v.id: v for v in videos}
+
+    # 🔴 NOVO: Verifica quais tarefas foram enviadas pro Freela e marca o bloco como Amostra
+    for t in tasks:
+        if t.assigned_to is not None:
+            fatia = slice_map.get(t.slice_id)
+            if not fatia: continue
+            video = video_map.get(fatia.video_id)
+            mov_name = t.movement.name if t.movement else "Indefinido"
+            
+            match = re.search(r'(\d{2}):(\d{2})', fatia.name)
+            h_start, m_start = (int(match.group(1)), int(match.group(2))) if match else (0,0)
+            duracao_segundos = fatia.end_time - fatia.start_time
+            num_blocos = int(duracao_segundos // 900) or 1
+            
+            for i in range(num_blocos):
+                min_base = h_start * 60 + m_start + (i * 15)
+                h_in, m_in = (min_base // 60) % 24, min_base % 60
+                h_out, m_out = ((min_base + 15) // 60) % 24, (min_base + 15) % 60
+                txt = f"{h_in:02d}:{m_in:02d} - {h_out:02d}:{m_out:02d}"
+                chave = f"{video.original_filename}|{fatia.id}|{mov_name}|{txt}"
+                
+                if chave in report_dict:
+                    report_dict[chave]["is_sample"] = True
+
+    # Busca os cliques do humano
+    query_records = db.query(CountRecord).join(MovementTask).filter(MovementTask.slice_id.in_(slice_ids))
+    if approved_only:
+        query_records = query_records.filter(CountRecord.is_approved == True)
+    records = query_records.all()
+
+    task_map = {t.id: t for t in tasks}
 
     for r in records:
         t = task_map.get(r.task_id)
@@ -475,14 +659,14 @@ def get_project_report(project_id: int, db: Session = Depends(get_db), approved_
             min_i = int(match.group(1)) * 60 + int(match.group(2)) + (bloco_idx * 15)
             txt = f"{(min_i // 60) % 24:02d}:{min_i % 60:02d} - {((min_i + 15) // 60) % 24:02d}:{(min_i + 15) % 60:02d}"
             
-            # Usamos as variáveis puxadas dos mapas com segurança
             chave = f"{video.original_filename}|{fatia.id}|{mov_name}|{txt}"
             
             if chave in report_dict:
+                if report_dict[chave][r.vehicle_class] is None:
+                    report_dict[chave][r.vehicle_class] = 0
                 report_dict[chave][r.vehicle_class] += 1
-                report_dict[chave]["has_data"] = True # Marca que este bloco tem dados aprovados
+                report_dict[chave]["has_data"] = True
 
-    # Se estamos no Relatório Final e não há dados aprovados, retornamos lista vazia
     if approved_only and not any(v["has_data"] for v in report_dict.values()):
         return {"project_name": project.name, "client_name": project.client.name, "data": []}
 
@@ -499,41 +683,6 @@ def get_project_report(project_id: int, db: Session = Depends(get_db), approved_
         "audit_selections": selections,
         "data": resultado_final
     }
-
-@router.post("/api/admin/projects/{project_id}/audit/approve")
-def approve_audit(project_id: int, payload: dict, db: Session = Depends(get_db)):
-    from models import Project, ConsolidatedReport
-    
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
-
-    final_data = payload.get("final_data", [])
-    selections_map = payload.get("selections_map", {})
-
-    if not final_data:
-        raise HTTPException(status_code=400, detail="Nenhum dado para salvar.")
-
-    # 1. Salva a "Foto" da UI para re-auditoria futura
-    project.audit_selections = selections_map
-    project.status = "approved"
-
-    # 2. Sobrescreve os dados finais
-    db.query(ConsolidatedReport).filter(ConsolidatedReport.project_id == project_id).delete()
-    
-    for row in final_data:
-        novo_registro = ConsolidatedReport(
-            project_id=project_id,
-            movement_name=row["movement"],
-            interval=row["interval"],
-            category=row["category"],
-            count=row["count"],
-            source=row["source"]
-        )
-        db.add(novo_registro)
-
-    db.commit()
-    return {"message": "Auditoria consolidada e salva com sucesso!"}
 
 @router.get("/api/admin/projects/{project_id}/consolidated")
 def get_consolidated_report(project_id: int, db: Session = Depends(get_db)):
@@ -563,14 +712,6 @@ def get_consolidated_report(project_id: int, db: Session = Depends(get_db)):
         "client_name": project.client.name if project.client else "N/A",
         "data": data_list
     }
-
-import pandas as pd
-import io
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends, HTTPException
-
-# ... (seu router e imports existentes)
 
 @router.get("/api/admin/projects/{project_id}/export")
 def export_project_excel(project_id: int, db: Session = Depends(get_db)):
@@ -657,23 +798,49 @@ def render_audit_page(request: Request):
 
 @router.get("/api/admin/sidebar-stats")
 def get_sidebar_stats(db: Session = Depends(get_db)):
-    from models import Video, VideoStatus, MovementTask, SliceStatus
+    from models import Video, VideoStatus, MovementTask, SliceStatus, VideoSlice, Project
     
-    # 1. Pendências de Staging (Vídeos aguardando fatiamento/aprovação)
+    # 🔴 1. GATILHO AUTOMÁTICO: Libera projetos "recounting" que os freelas já terminaram!
+    projetos_em_recontagem = db.query(Project).filter(Project.status == "recounting").all()
+    for proj in projetos_em_recontagem:
+        # Conta se ainda existe alguma tarefa pendente ou em andamento neste projeto
+        tarefas_incompletas = db.query(MovementTask).join(VideoSlice).join(Video).filter(
+            Video.project_id == proj.id,
+            MovementTask.status.in_(["pending", "assigned", SliceStatus.pending, SliceStatus.assigned])
+        ).count()
+        
+        # Se não sobrou nada pendente, o freela terminou! Devolve pra auditoria.
+        if tarefas_incompletas == 0:
+            proj.status = "processing"
+            
+    db.commit() # Salva a auto-liberação no banco
+
+    # ... RESTO DA FUNÇÃO CONTINUA IGUAL ...
+    
+    # Pendências de Staging
     staged_count = db.query(Video).filter(
         Video.status.in_([VideoStatus.staged, VideoStatus.ready, VideoStatus.configured])
     ).count()
     
-    # 2. Pendências de Alocação (Tarefas que ainda não foram concluídas)
-    # Pegamos pending (sem dono) e assigned (com dono mas não terminou)
-    pending_tasks = db.query(MovementTask).filter(
-        MovementTask.status.in_([SliceStatus.pending, SliceStatus.assigned, "pending", "assigned"])
-    ).count()
+    # Pendências de Alocação
+    pending_tasks = db.query(MovementTask)\
+        .join(VideoSlice)\
+        .join(Video)\
+        .filter(
+            MovementTask.status.in_([SliceStatus.pending, SliceStatus.assigned, "pending", "assigned"]),
+            Video.status.in_([VideoStatus.processing, "processing", VideoStatus.configured, "configured"])
+        ).count()
     
-    # 3. Pendências de Auditoria (Tarefas que os freelas já terminaram)
-    audit_ready = db.query(MovementTask).filter(
-        MovementTask.status.in_([SliceStatus.completed, "completed"])
-    ).count()
+    # Pendências de Auditoria
+    audit_ready = db.query(MovementTask)\
+        .join(VideoSlice)\
+        .join(Video)\
+        .join(Project, Video.project_id == Project.id)\
+        .filter(
+            MovementTask.status.in_([SliceStatus.completed, "completed"]),
+            Project.status.notin_(["recounting", "approved", "completed"]),
+            Video.status.in_([VideoStatus.processing, "processing", VideoStatus.configured, "configured"])
+        ).count()
     
     return {
         "staging": staged_count,
@@ -728,13 +895,22 @@ def approve_audit(project_id: int, payload: dict, db: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
 
     final_data = payload.get("final_data", [])
+    selections_map = payload.get("selections_map", {})
+
     if not final_data:
         raise HTTPException(status_code=400, detail="Nenhum dado para salvar.")
 
-    # 1. "Sobrescrever": Deleta todos os dados consolidados antigos deste projeto
-    db.query(ConsolidatedReport).filter(ConsolidatedReport.project_id == project_id).delete()
+    # 1. Salva a "Foto" da UI para re-auditoria futura
+    project.audit_selections = selections_map
+    project.status = "approved"
+    
+    videos = db.query(Video).filter(Video.project_id == project.id).all()
+    for v in videos:
+        v.status = "approved"
 
-    # 2. Insere os novos dados aprovados
+    # 2. Sobrescreve os dados finais
+    db.query(ConsolidatedReport).filter(ConsolidatedReport.project_id == project_id).delete()
+    
     for row in final_data:
         novo_registro = ConsolidatedReport(
             project_id=project_id,
@@ -746,8 +922,110 @@ def approve_audit(project_id: int, payload: dict, db: Session = Depends(get_db))
         )
         db.add(novo_registro)
 
-    project.status = "approved"
     db.commit()
+    return {"message": "Auditoria consolidada e salva com sucesso!"}
 
-    return {"message": "Relatório Final consolidado e salvo com sucesso!"}
+class RecountPayload(BaseModel):
+    selections: Dict[str, str]
+    keep_tasks: List[int] # 🔴 AGORA SÃO APENAS NÚMEROS!
 
+@router.post("/api/admin/projects/{project_id}/confirm-recount")
+def confirm_recount(project_id: int, payload: dict, db: Session = Depends(get_db)):
+    from models import Project, Video, VideoSlice, MovementTask, SliceStatus
+    import math
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return {"status": "error", "message": "Projeto não encontrado"}
+
+    # 1. O projeto muda para o status de recontagem
+    project.status = "recounting"
+
+    # Captura os horários que você selecionou no modal
+    start_time_raw = payload.get("start_time", 0)
+    end_time_raw = payload.get("end_time", 0)
+
+    # 🔴 ARREDONDAMENTO: Transforma qualquer minuto quebrado em janelas de 1h cheia (3600 segundos)
+    start_time_cheio = math.floor(start_time_raw / 3600) * 3600
+    end_time_cheio = math.ceil(end_time_raw / 3600) * 3600
+
+    # Busca os vídeos atrelados a esse projeto
+    videos = db.query(Video).filter(Video.project_id == project_id).all()
+    
+    for v in videos:
+        # O vídeo volta a ficar "processing" para reaparecer na esteira de alocação
+        v.status = "processing" 
+        
+        # Busca as fatias de 1 hora que intersectam o horário que você mandou recontar
+        slices = db.query(VideoSlice).filter(
+            VideoSlice.video_id == v.id,
+            VideoSlice.start_time >= start_time_cheio,
+            VideoSlice.end_time <= end_time_cheio
+        ).all()
+
+        for sl in slices:
+            for t in sl.tasks:
+                # 🔴 OBRIGATÓRIO PARA IR PARA A ABA "PENDENTES":
+                # Tiramos o status de concluído e jogamos para pendente
+                t.status = "pending"          # Ou SliceStatus.pending se o seu modelo usar o Enum
+                
+                # Desvinculamos o freelancer antigo para que a tarefa fique "sem dono"
+                t.assigned_to = None          
+                
+                # Se o seu modelo tiver um campo 'work_package_id', limpe ele também para desvincular do pacote antigo:
+                if hasattr(t, 'work_package_id'):
+                    t.work_package_id = None
+
+    # Salva todas as alterações de vez no banco de dados
+    db.commit() 
+    
+    return {"status": "success", "message": "Tarefas resetadas com sucesso para horas cheias."}
+
+
+@router.post("/api/admin/projects/{project_id}/audit/revert")
+def revert_audit(project_id: int, db: Session = Depends(get_db)):
+    from models import Project, Video
+    
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return {"status": "error", "message": "Projeto não encontrado"}
+    
+    # 🔴 Devolve o projeto para processamento. 
+    # Como as tarefas já estão "completed", ele cai magicamente de volta na fila de Auditoria!
+    project.status = "processing"
+    
+    # Faz o mesmo com os vídeos atrelados
+    videos = db.query(Video).filter(Video.project_id == project.id).all()
+    for v in videos:
+        v.status = "processing"
+        
+    db.commit()
+    
+    return {"status": "success", "message": "Projeto devolvido para auditoria."}
+
+
+
+
+
+
+
+# --------------------------- rota temporária para resetar as alocações e tarefas, útil durante os testes ---------------------------
+@router.get("/api/admin/debug/reset-allocations")
+def reset_all_allocations(db: Session = Depends(get_db)):
+    from models import MovementTask, WorkPackage, CountRecord
+    
+    # 1. Apaga todos os registros de contagem (opcional, remova se não quiser perder o que o freela já contou no teste)
+    db.query(CountRecord).delete(synchronize_session=False)
+    
+    # 2. Desatribui todas as tarefas de todos os freelas e volta para pendente
+    db.query(MovementTask).update({
+        "assigned_to": None,
+        "work_package_id": None,
+        "status": "pending"
+    }, synchronize_session=False)
+    
+    # 3. Apaga os pacotes de trabalho (WorkPackages)
+    db.query(WorkPackage).delete(synchronize_session=False)
+    
+    db.commit()
+    return {"message": "🧹 Faxina completa! O workspace de todos os freelancers está limpo e todas as tarefas voltaram para o zero."}
